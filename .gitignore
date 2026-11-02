@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+*.har
+*credentials*
+
+.research/
+
+.pytest_cache/
+.coverage
+htmlcov/
+*.sip
+
+.ruff_cache/

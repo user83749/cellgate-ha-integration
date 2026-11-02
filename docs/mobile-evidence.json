@@ -1,0 +1,125 @@
+{
+  "date": "2026-11-02",
+  "android_package": {
+    "source": "https://d.apkpure.net/b/XAPK/com.celaccess?version=latest",
+    "source_type": "third-party distribution mirror; vendor signature not yet independently authenticated",
+    "sha256": "9049b4fac832862b013da486d37170365a25ca54cb525a3f14829f2194bffa07",
+    "package": "com.celaccess",
+    "version": "4.0.61",
+    "base_apk_sha256": "ab3dd799bcbf88c14bb0abad3c2309afcec2578921ed79b8ef4a37de773413df",
+    "analysis": "static only; app never installed or executed"
+  },
+  "signature_inspection": {
+    "rea_evidence_id": "ev_87d9be939d6c1883a4df047ab395c0e4b9c624f61004463959c55cbf39d7c3a8",
+    "declared_signer_sha256": "2ddceb16596463d41e5299f7c7cf9407465cd0c6a492c42b63de591451d3792a",
+    "content_digest_self_consistent": true,
+    "vendor_authenticity_verified": false
+  },
+  "flutter_library_sha256": "81ef4822d1ecc7e34b76459b6fe75ee7a2c43656b1ae55af6c30c9e764871a7a",
+  "string_extraction": "32-bit Dart OneByteString candidates: tags>>12 == 94, even Smi length, in-bounds ASCII payload. Static string literals do not establish data flow or API request contracts.",
+  "selected_strings": [
+    {
+      "artifact": "libapp.so",
+      "file_offset": 3097356,
+      "string": "https://cellgate.zapopen.com/"
+    },
+    {
+      "artifact": "libapp.so",
+      "file_offset": 3189500,
+      "string": "getSIPRegistrationStatus"
+    },
+    {
+      "artifact": "libapp.so",
+      "file_offset": 3206772,
+      "string": "api/CellCam/Login"
+    },
+    {
+      "artifact": "libapp.so",
+      "file_offset": 3288924,
+      "string": "sip_host"
+    },
+    {
+      "artifact": "libapp.so",
+      "file_offset": 3421916,
+      "string": "FetchSipDetails"
+    },
+    {
+      "artifact": "libapp.so",
+      "file_offset": 3553252,
+      "string": "api/CellCam/GetSipInformationForUser"
+    },
+    {
+      "artifact": "libapp.so",
+      "file_offset": 3586612,
+      "string": "sip_password"
+    },
+    {
+      "artifact": "libapp.so",
+      "file_offset": 3617332,
+      "string": "unRegisterSIPAccount"
+    },
+    {
+      "artifact": "libapp.so",
+      "file_offset": 3617620,
+      "string": "api/CellCam/RefreshSIPToken/"
+    },
+    {
+      "artifact": "libapp.so",
+      "file_offset": 3745796,
+      "string": "registerSIPAccount"
+    },
+    {
+      "artifact": "libapp.so",
+      "file_offset": 3884228,
+      "string": "sip_username"
+    },
+    {
+      "artifact": "libapp.so",
+      "file_offset": 3926132,
+      "string": "SipDetailsCompleted"
+    }
+  ],
+  "native_trace": [
+    {
+      "file": "u8/g.java",
+      "method": "a / configureAccount",
+      "lines": [
+        177,
+        258
+      ],
+      "observations": [
+        "reads sip_username, sip_password, sip_host",
+        "Factory.createAuthInfo and Core.addAuthInfo",
+        "AccountParams.setIdentityAddress",
+        "server address TransportType.Udp",
+        "Core.createAccount, addAccount, setDefaultAccount"
+      ]
+    },
+    {
+      "file": "u8/b.java",
+      "method": "invoke, case 0",
+      "lines": [
+        77,
+        110
+      ],
+      "observations": [
+        "Core.createCallParams(call)",
+        "CallParams.setVideoEnabled(true)",
+        "Call.acceptWithParams(params)"
+      ]
+    },
+    {
+      "file": "u8/d.java",
+      "method": "onGlobalStateChanged",
+      "lines": [
+        150,
+        170
+      ],
+      "observations": [
+        "setVideoCaptureEnabled(false)",
+        "setVideoDisplayEnabled(true)"
+      ]
+    }
+  ],
+  "decompiler": "Official JADX 1.5.6 portable release; archive SHA-256 verified against GitHub release digest. No app code executed. Simple-mode output has partial decompilation errors."
+}

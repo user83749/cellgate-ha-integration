@@ -1,0 +1,24 @@
+{
+  "captures": [
+    {
+      "filename": "filtered_domains_11-02-2026-13-28-10.har",
+      "sha256": "5e4f4198c5b2adebb0e76c4b0c2bd890f4cf703794bc38198d30532b4c3187ff",
+      "records": 15,
+      "cellgate_mobile_host_records": 0,
+      "decrypted_firebase_records": []
+    },
+    {
+      "filename": "filtered_flows_11-02-2026-13-32-22.har",
+      "sha256": "5083944d1198ccb3d4155a3811d7e0b78d69fc4b9bab6b9c3a0289368058165b",
+      "records": 31,
+      "cellgate_mobile_host_records": 0,
+      "decrypted_firebase_records": [
+        0
+      ]
+    }
+  ],
+  "firebase_record_0_bundle_literal": "com.cellgate.mobile",
+  "body_representation": "Base64 text in postData; decoded bytes are protobuf. No credentials or payload bodies reproduced.",
+  "rea_isolated_record_parent_evidence_id": "ev_ad8fa7b85801530778865b06d3a3385a65d3ce0c76454fa805ddfa26f0432609",
+  "rea_limitations": "Original HAR rejected by strict schema because mandatory timing fields use -1 and an unrelated serverIPAddress field is invalid under the parser. An isolated derived record 0 was analyzed after replacing unknown required timing values with zero solely for parser compatibility; these are not measured times. Originals unchanged."
+}

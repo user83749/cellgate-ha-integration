@@ -1,0 +1,32 @@
+{
+  "title": "CellGate",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect CellGate",
+        "description": "Sign in with your CellGate account to add its gate trigger using the mobile API.",
+        "data": {
+          "username": "Email / username",
+          "password": "Password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Sign in to CellGate again",
+        "data": {
+          "username": "Email / username",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to CellGate or read its response.",
+      "invalid_auth": "CellGate rejected the credentials or session.",
+      "no_gates": "No visible gate output ports were found for this account."
+    },
+    "abort": {
+      "already_configured": "This account is already configured.",
+      "reauth_successful": "CellGate sign-in updated.",
+      "unique_id_mismatch": "Sign in with the same CellGate account."
+    }
+  }
+}

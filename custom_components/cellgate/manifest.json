@@ -1,0 +1,14 @@
+{
+  "domain": "cellgate",
+  "name": "CellGate",
+  "codeowners": [
+    "@user83749"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/user83749/cellgate-ha-integration",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/user83749/cellgate-ha-integration/issues",
+  "requirements": [],
+  "version": "0.2.2"
+}

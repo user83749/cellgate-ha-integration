@@ -1,0 +1,67 @@
+"""Configure CellGate from the Home Assistant UI."""
+
+import voluptuous as vol
+
+from homeassistant import config_entries
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+from .api import CellGateAuthError, CellGateClient, CellGateError
+from .const import DOMAIN
+
+SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_USERNAME): str,
+        vol.Required(CONF_PASSWORD): str,
+    }
+)
+
+
+class CellGateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    VERSION = 1
+
+    async def _validate(self, data):
+        client = CellGateClient(
+            async_get_clientsession(self.hass), data[CONF_USERNAME], data[CONF_PASSWORD]
+        )
+        await client.login()
+        gates = await client.discover()
+        return client.account_key, gates
+
+    async def async_step_user(self, user_input=None):
+        errors = {}
+        if user_input is not None:
+            try:
+                user_id, gates = await self._validate(user_input)
+                if not gates:
+                    errors["base"] = "no_gates"
+                else:
+                    await self.async_set_unique_id(str(user_id))
+                    self._abort_if_unique_id_configured()
+                    return self.async_create_entry(title="CellGate", data=user_input)
+            except CellGateAuthError:
+                errors["base"] = "invalid_auth"
+            except CellGateError:
+                errors["base"] = "cannot_connect"
+        return self.async_show_form(step_id="user", data_schema=SCHEMA, errors=errors)
+
+    async def async_step_reauth(self, entry_data):
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(self, user_input=None):
+        errors = {}
+        if user_input is not None:
+            try:
+                user_id, _ = await self._validate(user_input)
+                await self.async_set_unique_id(str(user_id))
+                self._abort_if_unique_id_mismatch()
+                return self.async_update_reload_and_abort(
+                    self._get_reauth_entry(), data_updates=user_input
+                )
+            except CellGateAuthError:
+                errors["base"] = "invalid_auth"
+            except CellGateError:
+                errors["base"] = "cannot_connect"
+        return self.async_show_form(
+            step_id="reauth_confirm", data_schema=SCHEMA, errors=errors
+        )
