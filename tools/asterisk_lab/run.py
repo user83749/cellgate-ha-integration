@@ -10,7 +10,6 @@ import importlib.util
 import json
 from pathlib import Path
 import secrets
-import shutil
 
 SPEC=importlib.util.spec_from_file_location('lab_digest',Path(__file__).parents[1]/'sip_probe.py')
 AUTH=importlib.util.module_from_spec(SPEC);SPEC.loader.exec_module(AUTH)
@@ -28,7 +27,7 @@ class Packet:
         lines=head.split('\r\n');self.start=lines[0];self.headers={}
         for line in lines[1:]:
             if ':' in line:
-                key,value=line.split(':',1);self.headers.setdefault(key.lower().strip(),[]).append(value.strip())
+                key,value=line.split(':',1);key=key.lower().strip();key={'v':'via','f':'from','t':'to','i':'call-id','m':'contact','l':'content-length','c':'content-type'}.get(key,key);self.headers.setdefault(key,[]).append(value.strip())
         self.method=self.start.split()[0] if self.start and not self.start.startswith('SIP/') else ''
         self.status=int(self.start.split()[1]) if self.start.startswith('SIP/2.0 ') else None
     def get(self,key,default=''):return self.headers.get(key.lower(),[default])[0]
@@ -114,7 +113,7 @@ exten => incoming-gate,1,NoOp(Synthetic incoming intercom)
 same => n,Dial(PJSIP/lab-browser,30)
 same => n,Hangup()
 ''')
-        proxy=f'outbound_proxy=sip:{BACK[0]}:{BACK[1]};lr\n' if self.proxy else ''
+        proxy=f'outbound_proxy=sip:{BACK[0]}:{BACK[1]}\\;lr\n' if self.proxy else ''
         (config/'pjsip.conf').write_text(f'''[global]
 type=global
 user_agent=CellGate-Asterisk-Lab
@@ -222,7 +221,11 @@ async def evaluate(args):
                 (instance.root/'registrations.txt').write_text(registrations)
                 report[mode]={'front_requests':len(front.records),'backend_requests':len(backend.records),'authenticated':any(r['authenticated'] and r['expires']!='0' for r in backend.records),'registered_in_cli':'Registered' in registrations,'request_records':list(backend.records)}
                 print(json.dumps({mode:report[mode]}),flush=True)
-                if proxy and not report[mode]['registered_in_cli']:raise RuntimeError('Resolved proxy registration failed')
+                if proxy:
+                    if not report[mode]['registered_in_cli']:raise RuntimeError('Resolved proxy registration failed')
+                    from media import evaluate_media
+                    report['media']=await evaluate_media(backend,instance)
+                    print(json.dumps({'media':report['media']}),flush=True)
             finally:await instance.stop()
     finally:
         front.close();backend.close()
