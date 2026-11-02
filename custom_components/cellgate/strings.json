@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Connect CellGate",
-        "description": "Sign in with your CellGate account to add its gate trigger using the mobile API.",
+        "description": "Sign in with your CellGate account to add your gate using the mobile API.",
         "data": {
           "username": "Email / username",
           "password": "Password"
@@ -27,6 +27,17 @@
       "already_configured": "This account is already configured.",
       "reauth_successful": "CellGate sign-in updated.",
       "unique_id_mismatch": "Sign in with the same CellGate account."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Intercom calls",
+        "description": "Enable experimental incoming-call video and talk. Opening the camera during a ring answers the call; closing the viewer leaves the call active until CellGate ends it. Simultaneous operation with the CellGate app is not yet verified. Uses Google STUN for media connectivity.",
+        "data": {
+          "enable_calls": "Enable intercom calls (experimental)"
+        }
+      }
     }
   }
 }

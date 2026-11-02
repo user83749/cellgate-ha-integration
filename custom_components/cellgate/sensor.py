@@ -1,6 +1,7 @@
 """Mobile-reported raw port state; no inferred physical position."""
 
 from homeassistant.components.sensor import SensorEntity
+from homeassistant.helpers.entity import EntityCategory
 
 from .entity import CellGateEntity
 
@@ -22,6 +23,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
 class CellGateStatus(CellGateEntity, SensorEntity):
     _attr_icon = "mdi:gate"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, coordinator, port_id, suffix):
         super().__init__(coordinator, port_id, suffix)

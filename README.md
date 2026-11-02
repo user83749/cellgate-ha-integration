@@ -1,56 +1,61 @@
 # CellGate for Home Assistant
 
-Unofficial Home Assistant custom integration using CellGate's **mobile API** at `cellgate.zapopen.com`.
+Unofficial Home Assistant custom integration using CellGate's **mobile API**. Version **0.3.0** adds a gate cover and experimental SIP intercom video/talk.
 
-**Development build, version 0.2.2.** The mobile client replaces the earlier web-portal prototype. There is no web-portal authentication or automatic fallback in the active integration. Mobile login, location/device discovery, and SIP provisioning have succeeded against the owner's account. Gate commands have not been sent during validation. Setup, configuration flows, entities, availability and unloading pass tests against Home Assistant 2026.10.4 using synthetic API data. Official hassfest validation also passes with zero invalid integrations. Installation on the owner's instance remains untested.
+## Gate
 
-## Implemented
+The gate is a standard `cover` entity with device class `gate`. Its **Open** action sends the mobile `MOMENTARY_OPEN` command once. It exposes no close, stop, hold-open or position actions. Open/closed state comes from the service's reported state labels; unrecognized labels produce `unknown`, rather than guessing from numbers or elapsed time. Cloud-reported state is not independent verification of physical position.
 
-- Sign in through the Home Assistant configuration UI using the mobile API.
-- Discover locations, devices, and explicitly identified gate/door ports.
-- A **Trigger gate** button sends the mobile `MOMENTARY_OPEN` command once.
-- A reported-state sensor uses the server-provided state label, with the raw mobile `lastState` as a fallback.
-- Obtain SIP account configuration during mobile login and support a dedicated authenticated SIP-information refresh. Configuration stays in client memory and is not exposed in entity attributes. This does not register a SIP client.
-- Poll every 60 seconds. Recover an unauthorized read once; never replay gate commands.
-- Stop automatic login attempts after rejected credentials; use Home Assistant reauthentication to correct them.
-- Camera ports, picture commands, hold-open commands, and close commands are not exposed.
+A raw reported-state sensor is available as a diagnostic entity, disabled by default. There is no Take Picture button.
 
-## Camera and two-way audio
+## Intercom calls — experimental
 
-These are requested but **not yet implemented**. Android artifact analysis identified native Linphone SIP/UDP call handling and the mobile SIP-provisioning endpoint names. SIP credentials and the server are now retrieved successfully, without an incoming call. A separate diagnostic successfully authenticated a short SIP/UDP registration and then removed its own contact. Production SIP call handling and media bridging still require implementation and validation. A reusable HTTP video URL has not been established.
+Enable **Intercom calls** in the integration's configuration options. This adds:
 
-The app's single-session versus multiple-session behavior is unverified. Existing route names such as `CheckUserAlreadyLogin`, `DeviceTokenUpdate`, and `RefreshSIPToken/` do not prove that simultaneous mobile clients are allowed or harmless. The current client does not register for push notifications or SIP calls.
+- One persistent Home Assistant WebRTC camera entity for the account, reused for every call's video and audio. It remains registered but unavailable to stream between calls.
+- An incoming-call event entity, with event type `ring`, for automations.
+- Persistent SIP registration, renewal, reconnection and contact-specific deregistration on unload/shutdown.
+
+Opening the camera while the intercom rings answers the SIP call. Closing the viewer releases its WebRTC connection and microphone; **it does not hang up the intercom call**. You can reopen the same camera during that call. CellGate's SIP call-end signal ends the session and releases its media resources. Disabling/unloading the integration also releases the call. No arbitrary active-call duration is imposed.
+
+Supported initial media profile: SIP over IPv4/UDP; H.264 or VP8 video; PCMU/PCMA (G.711) or G.722 audio; RTP/AVP(F), or SDES SRTP with `AES_CM_128_HMAC_SHA1_80`. Formats are negotiated from the incoming SDP, not inferred from codec IDs in provisioning. SIP ICE/DTLS, other encryption profiles and video codecs such as H.263 are not implemented. One HA viewer is supported at a time. This is a native WebRTC camera; there is no reusable RTSP/HLS URL or stored-picture substitute.
+
+Home Assistant **2026.11** introduces the standard camera talk interface as a Labs preview. Enable that preview and open HA over HTTPS to use its microphone control. The backend's audio return was tested with a real WebRTC microphone track. Camera API/capability checks also passed on Core 2026.11.0b3. Core 2026.10.4 has full integration lifecycle coverage, but does not provide that new standard talk control.
+
+Google STUN (`stun.l.google.com:19302`) is used for media address discovery. A TURN relay is not included, so restrictive NAT/firewall configurations may need further work. Concurrent behavior with the CellGate mobile app and the real incoming intercom media path remain unverified.
 
 ## Installation
 
-1. Copy `custom_components/cellgate` into your Home Assistant configuration directory so `/config/custom_components/cellgate/manifest.json` exists.
+1. Copy `custom_components/cellgate` into your HA configuration directory: `/config/custom_components/cellgate/manifest.json` must exist.
 2. Restart Home Assistant.
-3. Open **Settings → Devices & services → Add integration → CellGate**.
-4. Enter the username and password for your CellGate account.
-5. Confirm discovered devices and states before coordinating any physical gate test.
+3. Open **Settings → Devices & services → Add integration → CellGate**, then sign in.
+4. For calls, open the integration's configuration options and enable **Intercom calls (experimental)**.
+5. During an incoming intercom call, open its camera entity to answer and view it.
 
-Home Assistant stores credentials in its config-entry storage. No account credentials are included in this project. The integration sends credentials only to the mobile API over HTTPS and does not follow redirects. Returned SIP credentials remain in client memory and are not included in entity states or attributes. Empty `DeviceToken` and `VoipToken` headers match the reference integration's gate-control login contract; their effects on concurrent app sessions have not been live-validated.
+HA installs the integration's media dependencies automatically. The first installation requires access to PyPI and GitHub. The aiortc dependency is pinned to an immutable official upstream revision that supports HA's PyAV version; [dependency details](docs/call-media.md#dependencies).
 
-Once published, this repository can be added to HACS as a custom Integration repository. A previous development installation may acquire new entity identifiers after this mobile migration; do not assume old automations or registry entries migrate automatically.
+### Upgrading from 0.2.2
 
-## Evidence and references
+The old trigger button is replaced with the gate cover. Its registry metadata is preserved and the old button is disabled by the integration. Update automations that referenced the button to use `cover.open_cover` on the new gate entity. Existing reported-state sensors remain available; fresh installations default that diagnostic sensor to disabled.
 
-- [Mobile route inventory](docs/mobile-routes.md): all identified route literals, with the five implemented contracts distinguished from untraced routes.
-- [Mobile call investigation](docs/research-2026-11-02.md): Android call stack and capture findings.
-- [Home Assistant compatibility](docs/home-assistant.md): runtime conventions and validation.
-- [SIP registration](docs/sip-registration.md): successful authentication and private call-capture tooling.
-- [Camera work](docs/camera.md): current evidence and remaining requirements.
-- [Implementation provenance](docs/reference-integrations.md): comparison of the two public projects supplied by the owner.
+The integration uses no web-portal authentication or web fallback. Account credentials are stored in HA config-entry storage. SIP credentials stay in client memory and are excluded from entity attributes and logs. No account secrets, raw captures or private provisioning responses are included in the repository.
 
-The public integration by [daniel-mcdonough](https://github.com/daniel-mcdonough/cellgate-homeassistant) documents the mobile API's header/form request patterns. This project independently implements those protocol facts and adds bounded read recovery, no-replay command handling, concurrent session locking, strict gate/door filtering, and protocol tests. No source files were copied from that project.
+## Validation and current limits
 
-## Validation
+Mobile login/discovery/SIP provisioning and the new receiver's registration, authenticated renewal and own-contact deregistration have succeeded against the owner's account. No gate command or live call acceptance was performed during those checks.
+
+The test suite includes real local SIP/RTP/WebRTC transport with a simulated intercom: H.264 video, audio reception, microphone return, viewer reopen without ending the call, remote hangup, cancellation, STUN mapping, SRTP, and HA entity/options/unload behavior. All local call traffic uses this computer's interfaces; tests do not contact CellGate or operate the gate.
 
 ```sh
 python -m pip install -r requirements-test.txt
 python -m pytest -q
 ```
 
-The 43 tests use synthetic data only. They check Home Assistant setup/unload, configuration, entities and unavailable states, plus wire formats, parsing, login rejection handling, concurrent session reuse, read-session recovery, permission failures, command uncertainty/no replay, SIP response parsing, SIP caching/refresh, and secret-safe object representation. The SIP and gate parsers were also exercised against private live responses; no account values are included in fixtures. Real gate actuation, incoming call routing and media remain unvalidated.
+Hassfest validation passes. A real incoming CellGate call and installation on the owner's HA instance are still needed before treating call support as proven for this device.
 
-Authenticated SIP provisioning details: [verified request and response schema](docs/sip-provisioning.md).
+- [Call/media implementation and supported profile](docs/call-media.md)
+- [Home Assistant compatibility](docs/home-assistant.md)
+- [Verified SIP provisioning](docs/sip-provisioning.md)
+- [SIP registration evidence](docs/sip-registration.md)
+- [Mobile routes](docs/mobile-routes.md)
+- [Reference-project comparison and provenance](docs/reference-integrations.md)

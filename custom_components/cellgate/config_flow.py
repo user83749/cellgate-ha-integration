@@ -3,11 +3,12 @@
 import voluptuous as vol
 
 from homeassistant import config_entries
+from homeassistant.core import callback
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import CellGateAuthError, CellGateClient, CellGateError
-from .const import DOMAIN
+from .const import DOMAIN, CONF_ENABLE_CALLS
 
 SCHEMA = vol.Schema(
     {
@@ -19,6 +20,11 @@ SCHEMA = vol.Schema(
 
 class CellGateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry):
+        return CellGateOptionsFlow()
 
     async def _validate(self, data):
         client = CellGateClient(
@@ -65,3 +71,18 @@ class CellGateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="reauth_confirm", data_schema=SCHEMA, errors=errors
         )
+
+
+class CellGateOptionsFlow(config_entries.OptionsFlow):
+    async def async_step_init(self, user_input=None):
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_ENABLE_CALLS,
+                    default=self.config_entry.options.get(CONF_ENABLE_CALLS, False),
+                ): bool
+            }
+        )
+        return self.async_show_form(step_id="init", data_schema=schema)

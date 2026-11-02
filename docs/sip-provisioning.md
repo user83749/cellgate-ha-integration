@@ -1,5 +1,7 @@
 # Verified mobile SIP provisioning
 
+Version 0.3.0 now includes experimental call/media handling. See [current implementation and validation](call-media.md). The findings below record the earlier provisioning/registration investigation.
+
 Authorized live requests on November 2, 2026 established that SIP account information is available **before an incoming call**. One mobile login succeeded, followed by SIP-information, location-list, and device-list reads. No SIP registration, call acceptance, media connection, or gate command was performed.
 
 ## Request

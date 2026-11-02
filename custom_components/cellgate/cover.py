@@ -1,6 +1,10 @@
-"""Explicit gate commands; no optimistic position assumption."""
+"""A reported-state gate cover with only the supported momentary open action."""
 
-from homeassistant.components.button import ButtonEntity
+from homeassistant.components.cover import (
+    CoverEntity,
+    CoverEntityFeature,
+    CoverDeviceClass,
+)
 from homeassistant.exceptions import HomeAssistantError
 
 from .api import CellGateAuthError, CellGateError
@@ -19,20 +23,39 @@ async def async_setup_entry(hass, entry, async_add_entities):
             if not port.get("momentary_allowed", False):
                 continue
             known.add(port_id)
-            entities.append(CellGateButton(coordinator, port_id))
+            entities.append(CellGateCover(coordinator, port_id))
         async_add_entities(entities)
 
     add_discovered()
     entry.async_on_unload(coordinator.async_add_listener(add_discovered))
 
 
-class CellGateButton(CellGateEntity, ButtonEntity):
+class CellGateCover(CellGateEntity, CoverEntity):
+    _attr_device_class = CoverDeviceClass.GATE
+    _attr_supported_features = CoverEntityFeature.OPEN
+
     def __init__(self, coordinator, port_id):
-        super().__init__(coordinator, port_id, "trigger")
-        self._attr_name = f"{self.port.get('name', 'Gate')} Trigger gate"
+        super().__init__(coordinator, port_id, "gate")
+        self._attr_name = self.port.get("name", "Gate")
         self._attr_icon = "mdi:gate"
 
-    async def async_press(self):
+    @property
+    def is_closed(self):
+        label = str(self.port.get("state_label") or "").strip().lower()
+        if label in {"closed", "gate closed", "door closed"}:
+            return True
+        if label in {"open", "gate open", "door open"}:
+            return False
+        return None
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            "reported_state": self.port.get("state_label"),
+            "last_state": self.port.get("last_state"),
+        }
+
+    async def async_open_cover(self, **kwargs):
         if not self.available:
             raise HomeAssistantError("Gate is unavailable")
         try:

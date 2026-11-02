@@ -1,5 +1,7 @@
 # SIP registration: verified, call media pending
 
+Version 0.3.0 now includes experimental call/media handling. See [current implementation and validation](call-media.md). The findings below record the earlier provisioning/registration investigation.
+
 On November 2, 2026 a bounded SIP/UDP diagnostic using the owner's mobile-provisioned credentials received:
 
 1. `302` from the supplied SIP server, with a bare public IPv4/port Contact redirect.

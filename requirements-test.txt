@@ -1,3 +1,8 @@
 # Tested baseline; update these together when upgrading Home Assistant.
 homeassistant==2026.10.4
 pytest-homeassistant-custom-component==0.13.375
+
+# Same media dependencies as Home Assistant camera/stream and the integration.
+PyTurboJPEG==1.8.3
+av==19.0.0
+aiortc @ https://github.com/aiortc/aiortc/archive/87d83729b2a4528dbf97c5d892ae487581157c3b.zip

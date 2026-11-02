@@ -9,6 +9,8 @@
   "integration_type": "hub",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/user83749/cellgate-ha-integration/issues",
-  "requirements": [],
-  "version": "0.2.2"
+  "requirements": [
+    "aiortc@https://github.com/aiortc/aiortc/archive/87d83729b2a4528dbf97c5d892ae487581157c3b.zip"
+  ],
+  "version": "0.3.0"
 }
