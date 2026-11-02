@@ -6,9 +6,11 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers import selector
 
 from .api import CellGateAuthError, CellGateClient, CellGateError
-from .const import DOMAIN, CONF_ENABLE_CALLS
+from .const import DOMAIN, CONF_ENABLE_CALLS, CONF_BACKEND_URL, CONF_BACKEND_TOKEN
+from .intercom import check_backend, IntercomError, IntercomAuthError
 
 SCHEMA = vol.Schema(
     {
@@ -75,14 +77,39 @@ class CellGateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 class CellGateOptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(self, user_input=None):
+        errors = {}
+        values = dict(self.config_entry.options)
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            values.update(user_input)
+            if values.get(CONF_ENABLE_CALLS):
+                try:
+                    token = values.get(CONF_BACKEND_TOKEN, "")
+                    if len(token) < 32:
+                        raise IntercomAuthError("Backend token required")
+                    values[CONF_BACKEND_URL] = await check_backend(
+                        async_get_clientsession(self.hass),
+                        values.get(CONF_BACKEND_URL, ""),
+                        token,
+                    )
+                except IntercomAuthError:
+                    errors["base"] = "backend_auth"
+                except IntercomError:
+                    errors["base"] = "backend_unavailable"
+            if not errors:
+                return self.async_create_entry(title="", data=values)
         schema = vol.Schema(
             {
                 vol.Required(
-                    CONF_ENABLE_CALLS,
-                    default=self.config_entry.options.get(CONF_ENABLE_CALLS, False),
-                ): bool
+                    CONF_ENABLE_CALLS, default=values.get(CONF_ENABLE_CALLS, False)
+                ): bool,
+                vol.Optional(
+                    CONF_BACKEND_URL, default=values.get(CONF_BACKEND_URL, "")
+                ): str,
+                vol.Optional(
+                    CONF_BACKEND_TOKEN, default=values.get(CONF_BACKEND_TOKEN, "")
+                ): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                ),
             }
         )
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)

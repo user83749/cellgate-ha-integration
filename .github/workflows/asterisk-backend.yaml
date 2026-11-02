@@ -1,0 +1,34 @@
+name: Validate Asterisk companion and native HA signaling
+on:
+  push:
+    branches: [asterisk-backend, main]
+    paths:
+      - 'cellgate_intercom/**'
+      - 'custom_components/cellgate/**'
+      - 'tools/asterisk_lab/**'
+      - '.github/workflows/asterisk-backend.yaml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  intercom:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - run: pip install -r requirements-test.txt
+      - run: docker build -t cellgate-intercom:lab cellgate_intercom
+      - run: python -u tools/asterisk_lab/backend.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: asterisk-backend-results
+          path: |
+            asterisk-backend-results/report.json
+            asterisk-backend-results/*.txt
+            asterisk-backend-results/*.log
+            asterisk-backend-results/*.sdp
+          if-no-files-found: ignore

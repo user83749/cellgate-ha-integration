@@ -1,0 +1,30 @@
+name: CellGate Intercom
+version: 0.4.0
+slug: cellgate_intercom
+description: Asterisk media backend for the CellGate custom integration
+url: https://github.com/user83749/cellgate-ha-integration
+arch:
+  - aarch64
+  - amd64
+startup: services
+boot: auto
+init: false
+host_network: true
+options:
+  api_token: ""
+  api_port: 28190
+  sip_port: 15060
+  asterisk_http_port: 18088
+  rtp_start: 28000
+  rtp_end: 28200
+  stun_server: stun.l.google.com:19302
+  external_address: ""
+schema:
+  api_token: password
+  api_port: port
+  sip_port: port
+  asterisk_http_port: port
+  rtp_start: port
+  rtp_end: port
+  stun_server: str
+  external_address: str

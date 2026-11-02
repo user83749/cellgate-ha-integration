@@ -17,7 +17,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import CellGateAuthError, CellGateClient, CellGateError
-from .const import DOMAIN, CONF_ENABLE_CALLS, DEFAULT_STUN_SERVER
+from .const import DOMAIN, CONF_ENABLE_CALLS
 
 PLATFORMS = [Platform.COVER, Platform.SENSOR]
 LOGGER = logging.getLogger(__name__)
@@ -53,13 +53,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     coordinator = CellGateCoordinator(hass, entry, client)
     await coordinator.async_config_entry_first_refresh()
-    from .calls import CallManager
+    from .intercom import AsteriskCallManager
 
     # Keep one camera/manager for the config entry, including while calls are
     # disabled. An options toggle must not remove/recreate tokenized HA entities.
-    coordinator.calls = CallManager(
-        client.get_sip_account, stun_server=DEFAULT_STUN_SERVER
+    coordinator.calls = AsteriskCallManager(
+        async_get_clientsession(hass), client.get_sip_account, client.account_key
     )
+    await coordinator.calls.set_options(entry.options)
     entry.async_on_unload(coordinator.calls.stop)
 
     async def stop_calls(event):
@@ -101,6 +102,7 @@ def platforms(entry):
 
 async def update_options(hass, entry):
     manager = entry.runtime_data.calls
+    await manager.set_options(entry.options)
     if entry.options.get(CONF_ENABLE_CALLS, False):
         await manager.start()
     else:

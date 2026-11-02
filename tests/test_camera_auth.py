@@ -24,7 +24,7 @@ async def load_camera(hass, tmp_path):
             "custom_components.cellgate.api.CellGateClient.discover",
             AsyncMock(return_value=GATES),
         ),
-        patch("custom_components.cellgate.calls.CallManager.start", AsyncMock()),
+        patch("custom_components.cellgate.intercom.AsteriskCallManager.start", AsyncMock()),
     ):
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()

@@ -180,7 +180,9 @@ async def test_optional_persistent_camera_event_and_unload(hass):
             "custom_components.cellgate.api.CellGateClient.discover",
             AsyncMock(return_value=GATES),
         ),
-        patch("custom_components.cellgate.calls.CallManager.start", AsyncMock()),
+        patch(
+            "custom_components.cellgate.intercom.AsteriskCallManager.start", AsyncMock()
+        ),
     ):
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
@@ -195,7 +197,9 @@ async def test_optional_persistent_camera_event_and_unload(hass):
             answered=False, bridge=SimpleNamespace(can_talk=True)
         )
         manager.ring_sequence = sequence
-        manager.set_state("ringing")
+        manager.state = "ringing"
+        manager.can_talk = True
+        manager.notify()
         assert hass.states.get(camera_id).state != "unavailable"
         assert hass.states.get(event_id).attributes["event_type"] == "ring"
         assert hass.data[DATA_COMPONENT].get_entity(camera_id) is camera
@@ -203,13 +207,15 @@ async def test_optional_persistent_camera_event_and_unload(hass):
         if hasattr(camera, "camera_entity_capabilities"):
             assert camera.camera_entity_capabilities.two_way_audio is True
         manager.call = None
-        manager.set_state("idle")
+        manager.state = "idle"
+        manager.can_talk = False
+        manager.notify()
         assert hass.states.get(camera_id).state == "unavailable"
         if hasattr(camera, "camera_entity_capabilities"):
             assert camera.camera_entity_capabilities.two_way_audio is False
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
-    assert manager.closed and not manager.listeners
+    assert manager.stopped and not manager.listeners
 
 
 async def test_options_toggle_preserves_camera_and_manager(hass):
@@ -227,7 +233,9 @@ async def test_options_toggle_preserves_camera_and_manager(hass):
             "custom_components.cellgate.api.CellGateClient.discover",
             AsyncMock(return_value=GATES),
         ),
-        patch("custom_components.cellgate.calls.CallManager.start", AsyncMock()),
+        patch(
+            "custom_components.cellgate.intercom.AsteriskCallManager.start", AsyncMock()
+        ),
     ):
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
@@ -240,7 +248,7 @@ async def test_options_toggle_preserves_camera_and_manager(hass):
         )
         assert result["type"] is FlowResultType.CREATE_ENTRY
         await hass.async_block_till_done()
-        assert old.closed and entry.runtime_data.calls is old
+        assert old.stopped and entry.runtime_data.calls is old
         assert hass.data[DATA_COMPONENT].get_entity(camera_id) is not None
         assert hass.states.get(camera_id).state == "unavailable"
 
