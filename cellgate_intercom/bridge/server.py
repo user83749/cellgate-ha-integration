@@ -98,6 +98,7 @@ class Bridge:
         self.lock = asyncio.Lock()
         self.offer_lock = asyncio.Lock()
         self.stopped = False
+        self.next_probe = 0
 
     def snapshot(self):
         return {
@@ -195,6 +196,29 @@ class Bridge:
             except (BackendError, TimeoutError):
                 self.registered = False
                 await self.publish()
+            now = asyncio.get_running_loop().time()
+            if (
+                self.owner
+                and not self.registered
+                and not self.call
+                and now >= self.next_probe
+            ):
+                self.next_probe = now + 60
+                try:
+                    async with self.lock:
+                        account = self.account
+                        if account and not self.call:
+                            peer = await resolve_next_hop(account)
+                            if peer != self.peer:
+                                self.config.write(
+                                    "provider.conf", self.config.provider(account, peer)
+                                )
+                                await self.config.cli(
+                                    "module reload res_pjsip.so res_pjsip_authenticator_digest.so res_pjsip_endpoint_identifier_ip.so res_pjsip_outbound_registration.so"
+                                )
+                                self.peer = peer
+                except (BackendError, OSError, TimeoutError):
+                    pass
             await asyncio.sleep(5)
 
     async def event(self, event):
@@ -296,6 +320,7 @@ class Bridge:
             self.account = dict(account)
             self.owner = owner
             self.peer = peer
+            self.next_probe = asyncio.get_running_loop().time() + 60
             self.last_error = None
             await self.publish()
             return self.snapshot()
@@ -327,7 +352,16 @@ class Bridge:
             if self.owner != owner:
                 return
             await self.end_call()
-            # Asterisk removes its own registration when the object is removed.
+            # Keep the auth object alive while the registrar challenges the
+            # Expires: 0 request. Removing it first prevents digest completion.
+            with suppress(BackendError, TimeoutError):
+                await self.config.cli("pjsip send unregister cellgate-registration")
+                async with asyncio.timeout(5):
+                    while re.search(
+                        r"\bRegistered\b",
+                        await self.config.cli("pjsip show registrations"),
+                    ):
+                        await asyncio.sleep(0.1)
             self.config.write("provider.conf", "")
             await self.config.cli(
                 "module reload res_pjsip.so res_pjsip_authenticator_digest.so res_pjsip_endpoint_identifier_ip.so res_pjsip_outbound_registration.so"

@@ -16,7 +16,12 @@ async def main():
         Path(os.environ.get("CELLGATE_OPTIONS", "/data/options.json")).read_text()
     )
     token = options.get("api_token", "")
-    if not isinstance(token, str) or len(token) < 32:
+    if (
+        not isinstance(token, str)
+        or not 32 <= len(token) <= 128
+        or not token.isascii()
+        or any(ord(c) < 33 or ord(c) > 126 for c in token)
+    ):
         raise BackendError(
             "Set an independent API token with at least 32 characters in the add-on options"
         )
@@ -70,6 +75,9 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     try:
         asyncio.run(main())
+    except BackendError as err:
+        logging.error("%s", err)
+        raise SystemExit(1) from None
     except Exception:
         # Do not print account values, URLs, passwords, or remote descriptions.
         logging.error(

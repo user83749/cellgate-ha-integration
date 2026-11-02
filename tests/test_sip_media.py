@@ -4,13 +4,13 @@ import base64
 import pytest
 from aiortc.rtp import RtpPacket
 
-from custom_components.cellgate.sip_sdp import (
+from tools.legacy_receiver.sip_sdp import (
     MediaError,
     parse_offer,
     negotiate,
 )
-from custom_components.cellgate.media import RtpChannel
-from custom_components.cellgate.sip import Message, SipError
+from tools.legacy_receiver.media import RtpChannel
+from tools.legacy_receiver.sip import Message, SipError
 
 
 def sdp(
@@ -135,7 +135,7 @@ def test_sip_framing_checks_and_secret_safe_representation():
 async def test_partial_media_prepare_failure_closes_siblings(monkeypatch):
     import asyncio
     from unittest.mock import AsyncMock
-    from custom_components.cellgate.media import MediaBridge
+    from tools.legacy_receiver.media import MediaBridge
 
     sections = parse_offer(
         sdp("audio", "0", "") + "m=video 5000 RTP/AVP 99\r\na=rtpmap:99 H264/90000\r\n"
@@ -162,7 +162,7 @@ async def test_partial_media_prepare_failure_closes_siblings(monkeypatch):
 
 
 def test_h264_out_of_band_parameter_sets():
-    from custom_components.cellgate.media import create_decoder
+    from tools.legacy_receiver.media import create_decoder
 
     section = parse_offer(
         sdp(

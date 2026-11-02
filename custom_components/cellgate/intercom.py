@@ -47,6 +47,15 @@ def backend_url(value):
 
 async def check_backend(client, url, token):
     url = backend_url(url)
+    if (
+        not isinstance(token, str)
+        or not 32 <= len(token) <= 128
+        or not token.isascii()
+        or any(ord(c) < 33 or ord(c) > 126 for c in token)
+    ):
+        raise IntercomAuthError(
+            "Backend API token must contain 32–128 visible ASCII characters"
+        )
     try:
         async with client.get(
             url + "/v1/health",

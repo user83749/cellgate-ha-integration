@@ -146,6 +146,35 @@ class Configuration:
         path.chmod(0o600)
 
     def initialize(self):
+        ports = [
+            int(self.options.get(key, default))
+            for key, default in (
+                ("api_port", 28190),
+                ("sip_port", 15060),
+                ("asterisk_http_port", 18088),
+                ("rtp_start", 28000),
+                ("rtp_end", 28200),
+            )
+        ]
+        api, sip, http, first, last = ports
+        if (
+            any(not 1 <= port <= 65535 for port in ports)
+            or api == http
+            or first % 2
+            or last <= first
+            or first <= sip <= last
+        ):
+            raise BackendError(
+                "Configure distinct HTTP ports and an even-start RTP range outside the SIP port"
+            )
+        stun = self.options.get("stun_server", "stun.l.google.com:19302")
+        if stun:
+            host_port(stun)
+        external = self.options.get("external_address", "")
+        if external and not re.fullmatch(r"[A-Za-z0-9.-]+", external):
+            raise BackendError(
+                "External address must be an IP address or DNS hostname without a URL or port"
+            )
         self.root.mkdir(parents=True, exist_ok=True)
         self.root.chmod(0o700)
         for name in ("run", "log", "state", "keys", "spool"):
