@@ -252,7 +252,7 @@ outbound_auth=cellgate-auth
 server_uri=sip:{config_value(account["host"].removeprefix("sip:"))}
 client_uri=sip:{user}@{host}
 contact_user=gate
-expiration=180
+expiration=60
 retry_interval=30
 fatal_retry_interval=0
 forbidden_retry_interval=0
@@ -275,6 +275,12 @@ force_rport=yes
 rewrite_contact=yes
 media_encryption=sdes
 media_encryption_optimistic=yes
+aors=provider-aor
+[provider-aor]
+type=aor
+contact=sip:{peer[0]}:{peer[1]}
+qualify_frequency=25
+qualify_timeout=3
 [provider-identify]
 type=identify
 endpoint=provider
@@ -293,6 +299,11 @@ match={peer[0]}
         )
         async with asyncio.timeout(8):
             data, _ = await process.communicate()
-        if process.returncode:
+        text = data.decode(errors="replace")
+        if (
+            process.returncode
+            or "No such command" in text
+            or "Unable to reload" in text
+        ):
             raise BackendError("Asterisk control unavailable")
-        return data.decode(errors="replace")
+        return text

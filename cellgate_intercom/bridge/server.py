@@ -290,7 +290,9 @@ class Bridge:
                 )
             peer = await resolve_next_hop(account)
             self.config.write("provider.conf", self.config.provider(account, peer))
-            await self.config.cli("pjsip reload")
+            await self.config.cli(
+                "module reload res_pjsip.so res_pjsip_authenticator_digest.so res_pjsip_endpoint_identifier_ip.so res_pjsip_outbound_registration.so"
+            )
             self.account = dict(account)
             self.owner = owner
             self.peer = peer
@@ -327,7 +329,9 @@ class Bridge:
             await self.end_call()
             # Asterisk removes its own registration when the object is removed.
             self.config.write("provider.conf", "")
-            await self.config.cli("pjsip reload")
+            await self.config.cli(
+                "module reload res_pjsip.so res_pjsip_authenticator_digest.so res_pjsip_endpoint_identifier_ip.so res_pjsip_outbound_registration.so"
+            )
             self.owner = None
             self.account = None
             self.peer = None
