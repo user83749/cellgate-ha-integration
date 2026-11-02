@@ -17,7 +17,7 @@ import socket
 import time
 from urllib.parse import quote
 
-from .api import CellGateError, CellGateAuthError
+from custom_components.cellgate.api import CellGateError, CellGateAuthError
 from .sip_auth import SipAuthError, challenge_fields, digest, safe
 from .sip_sdp import MediaError, parse_offer
 from .media import MediaBridge

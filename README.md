@@ -1,63 +1,66 @@
 # CellGate for Home Assistant
 
-Unofficial Home Assistant custom integration using CellGate's **mobile API**. Version **0.3.2** fixes duplicate SIP invitations after response-cache expiry and includes the 0.3.1 camera-authentication fixes. Gate cover and experimental SIP intercom video/talk are included.
+Unofficial Home Assistant custom integration using CellGate's **mobile API**. Version **0.4.0** moves experimental intercom calls to a dedicated Asterisk backend. HA keeps the gate cover, one persistent native camera for video/audio/talk, and the incoming-call event.
 
 ## Gate
 
-The gate is a standard `cover` entity with device class `gate`. Its **Open** action sends the mobile `MOMENTARY_OPEN` command once. It exposes no close, stop, hold-open or position actions. Open/closed state comes from the service's reported state labels; unrecognized labels produce `unknown`, rather than guessing from numbers or elapsed time. Cloud-reported state is not independent verification of physical position.
+The gate is a standard `cover` with device class `gate`. **Open** sends the mobile `MOMENTARY_OPEN` command once. There are no close, stop, hold-open, position, or Take Picture actions. State follows the mobile service's reported labels; unrecognized labels produce `unknown`. A raw diagnostic state sensor is disabled by default.
 
-A raw reported-state sensor is available as a diagnostic entity, disabled by default. There is no Take Picture button.
+Gate control needs only the custom integration. It does not depend on Asterisk.
 
-## Intercom calls — experimental
+## Install the integration
 
-The camera and incoming-call event entities stay registered even while call support is disabled. Enable **Intercom calls** in the integration's configuration options to start the SIP receiver:
+Install this repository through HACS as an Integration, or copy `custom_components/cellgate` to `/config/custom_components/cellgate`. Restart HA and add **CellGate** under **Settings → Devices & services**, signing in with your CellGate account.
 
-- One persistent Home Assistant WebRTC camera entity for the account, reused for every call's video and audio. It remains registered but unavailable to stream between calls.
-- An incoming-call event entity, with event type `ring`, for automations.
-- Persistent SIP registration, renewal, reconnection and contact-specific deregistration on unload/shutdown.
+### Install the intercom backend
 
-Opening the camera while the intercom rings answers the SIP call. Closing the viewer releases its WebRTC connection and microphone; **it does not hang up the intercom call**. You can reopen the same camera during that call. CellGate's SIP call-end signal ends the session and releases its media resources. Disabling/unloading the integration also releases the call. No arbitrary active-call duration is imposed.
+For HA OS / a Supervisor installation:
 
-Supported initial media profile: SIP over IPv4/UDP; H.264 or VP8 video; PCMU/PCMA (G.711) or G.722 audio; RTP/AVP(F), or SDES SRTP with `AES_CM_128_HMAC_SHA1_80`. Formats are negotiated from the incoming SDP, not inferred from codec IDs in provisioning. SIP ICE/DTLS, other encryption profiles and video codecs such as H.263 are not implemented. One HA viewer is supported at a time. This is a native WebRTC camera; there is no reusable RTSP/HLS URL or stored-picture substitute.
+1. In the add-on/app store, add this repository URL: `https://github.com/user83749/cellgate-ha-integration`.
+2. Install **CellGate Intercom**. It builds a dedicated Asterisk image; the first build can take several minutes.
+3. Set its `api_token` to an independent random secret of 32–128 visible ASCII characters. For example, `openssl rand -hex 32` generates an appropriate token. This is the companion service's token, not a Home Assistant token or password.
+4. Start the service. Its log should say **CellGate intercom backend ready**.
+5. In the CellGate integration's configuration options, enable intercom calls and enter `http://HOME_ASSISTANT_LAN_IP:28190` as the backend URL, plus that same token.
 
-Home Assistant **2026.11** introduces the standard camera talk interface as a Labs preview. Enable that preview and open HA over HTTPS to use its microphone control. The backend's audio return was tested with a real WebRTC microphone track. Camera API/capability checks also passed on Core 2026.11.0b3. Core 2026.10.4 has full integration lifecycle coverage, but does not provide that new standard talk control.
+The backend URL is a server-to-server connection from HA. The browser receives media through WebRTC, using the existing native camera interface. Do not put the HA dashboard URL in the backend field. There is no additional dashboard card or HomeKit component to install.
 
-Changing the intercom option starts/stops its receiver in place, without recreating the camera or its tokens. The WebRTC-only camera does not advertise a tokenized snapshot URL.
+The service needs its own UDP SIP/RTP ports and an internal HTTP signaling port. Defaults and networking details are in [the backend setup guide](cellgate_intercom/DOCS.md). If behind NAT, set `external_address` to the public IP/DNS hostname when required by your SIP/media routing; Google STUN is enabled for ICE by default. Restrictive networks may require additional routing or a TURN solution; TURN is not configured by this release.
 
-Google STUN (`stun.l.google.com:19302`) is used for media address discovery. A TURN relay is not included, so restrictive NAT/firewall configurations may need further work. Concurrent behavior with the CellGate mobile app and the real incoming intercom media path remain unverified.
+HA Container users can run the same [companion Docker service](cellgate_intercom/DOCS.md#home-assistant-container) separately.
 
-## Installation
+### Upgrading from 0.3.x
 
-1. Copy `custom_components/cellgate` into your HA configuration directory: `/config/custom_components/cellgate/manifest.json` must exist.
-2. Restart Home Assistant.
-3. Open **Settings → Devices & services → Add integration → CellGate**, then sign in.
-4. For calls, open the integration's configuration options and enable **Intercom calls (experimental)**.
-5. During an incoming intercom call, open its camera entity to answer and view it.
+The old in-process SIP receiver is replaced. Update the integration and install/configure the companion service before expecting intercom calls. Existing enabled-call settings without a backend produce `configuration_required`; the integration does not silently start the old receiver. The gate continues to work.
 
-HA installs the integration's media dependencies automatically. The first installation requires access to PyPI and GitHub. The aiortc dependency is pinned to an immutable official upstream revision that supports HA's PyAV version; [dependency details](docs/call-media.md#dependencies).
+The existing camera and event unique IDs are preserved. Options changes start/stop or reconnect the manager in place, preserving the camera object and tokens. The camera advertises no snapshot URL. The old receiver is archived under `tools/legacy_receiver` for historical regression tests and is excluded from the installable HA component. HA no longer installs aiortc/PyAV for this integration.
 
-### Upgrading from 0.2.2
+## Intercom behavior — experimental
 
-The old trigger button is replaced with the gate cover. Its registry metadata is preserved and the old button is disabled by the integration. Update automations that referenced the button to use `cover.open_cover` on the new gate entity. Existing reported-state sensors remain available; fresh installations default that diagnostic sensor to disabled.
+- One persistent native HA WebRTC camera, unavailable to stream between calls. Video, audio and microphone return use the same camera entity.
+- An incoming-call event entity with event type `ring` for automations.
+- Opening the camera during ringing answers the intercom.
+- Closing the viewer ends only that viewer's connection and microphone. The intercom call stays active; reopening the camera rejoins that same call.
+- CellGate's call-end signal ends the call. Disabling/unloading call support also releases the call and deregisters the backend's own SIP contact. No arbitrary active-call duration is imposed.
+- One account/backend and one HA viewer at a time. Simultaneous operation with the CellGate app remains unverified.
 
-The integration uses no web-portal authentication or web fallback. Account credentials are stored in HA config-entry storage. SIP credentials stay in client memory and are excluded from entity attributes and logs. No account secrets, raw captures or private provisioning responses are included in the repository.
+Asterisk handles provider registration/digest authentication, SIP call signaling, RTP/SRTP and WebRTC DTLS/ICE. The HA adapter forwards SDP/ICE without decoding or encoding media. Compatible H.264/VP8 video can be forwarded without re-encoding; matching formats/profiles are required because Asterisk does not transcode video. Audio can be converted between supported codecs, including PCMU/PCMA, G.722 and Opus.
 
-## Validation and current limits
+The standard HA microphone control requires Core **2026.11**'s two-way-audio Labs preview and an HTTPS frontend. Core 2026.10 supports the camera stream but lacks that new standard talk control.
 
-Mobile login/discovery/SIP provisioning and the new receiver's registration, authenticated renewal and own-contact deregistration have succeeded against the owner's account. No gate command or live call acceptance was performed during those checks.
+## Validation and limits
 
-The test suite includes real local SIP/RTP/WebRTC transport with a simulated intercom: H.264 video, audio reception, microphone return, viewer reopen without ending the call, remote hangup, cancellation, STUN mapping, SRTP, and HA entity/options/unload behavior. All local call traffic uses this computer's interfaces; tests do not contact CellGate or operate the gate.
+The shipped companion image and HA manager have an automated Linux/Docker end-to-end test using a simulated intercom and real SIP/RTP/WebRTC traffic. It checks H.264 decoding and unchanged encoded video payloads, incoming audio, a distinct microphone tone returned as PCMU, delayed answering, trickled ICE, viewer close/reopen on the same call, remote BYE/CANCEL, and contact-specific deregistration. The HA test suite checks native entity lifecycle, camera signaling, options, late ICE, and camera-authentication/IP-ban regressions. Hassfest validates the component.
+
+**A real incoming CellGate call remains necessary to validate this device's codec/encryption, Internet NAT behavior, and coexistence with the mobile app.** The synthetic test is not a latency benchmark or proof of real-device interoperability. There is no RTSP/HLS URL, snapshot feature, or video transcoder fallback.
+
+Account login credentials remain in HA config-entry storage. Only SIP provisioning credentials are sent to the authenticated companion service, whose runtime config is mode `0600` and is cleared on normal shutdown/restart. It has no Supervisor/HA API permissions, never logs into HA, and does not receive your CellGate account login password. SIP credentials and backend tokens are excluded from entity attributes and normal logs.
 
 ```sh
 python -m pip install -r requirements-test.txt
 python -m pytest -q
 ```
 
-Hassfest validation passes. A real incoming CellGate call and installation on the owner's HA instance are still needed before treating call support as proven for this device.
-
-- [Call/media implementation and supported profile](docs/call-media.md)
+- [Current call/media architecture](docs/call-media.md)
+- [Asterisk evaluation](docs/asterisk-review.md)
 - [Home Assistant compatibility](docs/home-assistant.md)
-- [Verified SIP provisioning](docs/sip-provisioning.md)
-- [SIP registration evidence](docs/sip-registration.md)
 - [Mobile routes](docs/mobile-routes.md)
-- [Reference-project comparison and provenance](docs/reference-integrations.md)

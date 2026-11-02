@@ -23,9 +23,9 @@ from aiortc.rtp import RtpPacket
 import pytest
 from aioice.ice import get_host_addresses
 
-from custom_components.cellgate.calls import CallManager
-from custom_components.cellgate.sip import Message, wire
-from custom_components.cellgate.sip_auth import challenge_fields, digest
+from tools.legacy_receiver.calls import CallManager
+from tools.legacy_receiver.sip import Message, wire
+from tools.legacy_receiver.sip_auth import challenge_fields, digest
 
 REAL_IPV4 = get_host_addresses(use_ipv4=True, use_ipv6=False)
 REAL_ADDRESSES = get_host_addresses(use_ipv4=True, use_ipv6=True)
@@ -398,7 +398,7 @@ async def test_real_rtp_video_audio_and_microphone_return(simulated_gate):
 
 async def test_stun_uses_the_same_rtp_socket(simulated_gate):
     from aioice import stun
-    from custom_components.cellgate.media import DatagramPort
+    from tools.legacy_receiver.media import DatagramPort
 
     gate, _ = simulated_gate
 

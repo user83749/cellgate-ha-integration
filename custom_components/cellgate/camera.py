@@ -13,8 +13,7 @@ except ImportError:
     CameraEntityCapabilities = None
 
 from .const import DOMAIN
-from .sip import SipError
-from .sip_sdp import MediaError
+from .intercom import IntercomError
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
@@ -53,9 +52,7 @@ class CellGateCamera(Camera):
 
     @property
     def available(self):
-        return self.manager.call is not None and (
-            self.manager.registered or self.manager.call.answered
-        )
+        return self.manager.call is not None
 
     @property
     def extra_state_attributes(self):
@@ -84,10 +81,10 @@ class CellGateCamera(Camera):
         try:
             answer = await self.manager.offer(offer_sdp, session_id)
             send_message(WebRTCAnswer(answer))
-        except (SipError, MediaError) as err:
+        except IntercomError as err:
             send_message(WebRTCError("cellgate_call_unavailable", str(err)))
         except Exception:
-            # aiortc/SDP errors can include remote descriptions; never expose them.
+            # Never expose remote descriptions or backend credentials.
             send_message(
                 WebRTCError(
                     "cellgate_media_error",
@@ -103,7 +100,7 @@ class CellGateCamera(Camera):
                 candidate.sdp_mid,
                 candidate.sdp_m_line_index,
             )
-        except (SipError, MediaError) as err:
+        except IntercomError as err:
             raise HomeAssistantError(str(err)) from None
         except Exception:
             raise HomeAssistantError(

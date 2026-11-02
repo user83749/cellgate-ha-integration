@@ -1,0 +1,35 @@
+name: Evaluate Asterisk backend (isolated lab)
+on:
+  push:
+    branches: [evaluate-asterisk]
+    paths:
+      - 'tools/asterisk_lab/**'
+      - '.github/workflows/evaluate-asterisk.yaml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  lab:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Pull the referenced Asterisk add-on image
+        run: docker pull ghcr.io/tech7fox/asterisk-hass-addon:6.4.0
+      - name: Install isolated media test dependencies
+        run: pip install 'aiohttp==3.14.5' 'av==19.0.0' 'aiortc@https://github.com/aiortc/aiortc/archive/87d83729b2a4528dbf97c5d892ae487581157c3b.zip'
+      - name: Evaluate registrar redirect and resolved next hop
+        run: python -u tools/asterisk_lab/run.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: asterisk-lab-results
+          path: |
+            asterisk-lab-results/report.json
+            asterisk-lab-results/**/*.txt
+            asterisk-lab-results/**/*.log
+            asterisk-lab-results/**/*.sdp
+          if-no-files-found: ignore

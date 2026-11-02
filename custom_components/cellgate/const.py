@@ -9,3 +9,6 @@ APP_TYPE = "android"
 
 CONF_ENABLE_CALLS = "enable_calls"
 DEFAULT_STUN_SERVER = ("stun.l.google.com", 19302)
+
+CONF_BACKEND_URL = "backend_url"
+CONF_BACKEND_TOKEN = "backend_token"

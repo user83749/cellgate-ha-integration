@@ -33,11 +33,17 @@
     "step": {
       "init": {
         "title": "Intercom calls",
-        "description": "Enable experimental incoming-call video and talk. Opening the camera during a ring answers the call; closing the viewer leaves the call active until CellGate ends it. Simultaneous operation with the CellGate app is not yet verified. Uses Google STUN for media connectivity.",
+        "description": "Connect the CellGate Intercom Asterisk backend. Opening this camera answers an incoming call. Closing a viewer leaves the intercom call active; reopen the same camera during that call. Install the companion service first, then enter its URL (normally http://HOME_ASSISTANT_IP:28190) and its independent API token. Mobile app coexistence and real CellGate media remain experimental.",
         "data": {
-          "enable_calls": "Enable intercom calls (experimental)"
+          "enable_calls": "Enable intercom calls (experimental)",
+          "backend_url": "CellGate Intercom backend URL",
+          "backend_token": "Backend API token"
         }
       }
+    },
+    "error": {
+      "backend_auth": "The backend API token must match the companion service and contain at least 32 characters.",
+      "backend_unavailable": "Unable to reach a ready CellGate Intercom backend. Use the companion service URL, including its port."
     }
   }
 }
