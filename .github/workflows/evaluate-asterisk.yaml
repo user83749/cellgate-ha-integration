@@ -1,0 +1,29 @@
+name: Evaluate Asterisk backend (isolated lab)
+on:
+  push:
+    branches: [evaluate-asterisk]
+    paths:
+      - 'tools/asterisk_lab/**'
+      - '.github/workflows/evaluate-asterisk.yaml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  lab:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Pull the referenced Asterisk add-on image
+        run: docker pull ghcr.io/tech7fox/asterisk-hass-addon:6.4.0
+      - name: Evaluate registrar redirect and resolved next hop
+        run: python -u tools/asterisk_lab/run.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: asterisk-lab-results
+          path: asterisk-lab-results/
+          if-no-files-found: ignore
