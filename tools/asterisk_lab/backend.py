@@ -13,7 +13,12 @@ import types
 
 import aiohttp
 import av
-from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
+from aiortc import (
+    RTCConfiguration,
+    RTCBundlePolicy,
+    RTCPeerConnection,
+    RTCSessionDescription,
+)
 from aiortc.codecs import get_decoder, get_encoder
 from aiortc.jitterbuffer import JitterFrame
 from aiortc.rtp import RtpPacket
@@ -180,8 +185,15 @@ async def evaluate():
             encoded = set()
             forwarded = set()
 
-            async def open_viewer(viewer_id, trickle=False):
-                browser = RTCPeerConnection(RTCConfiguration(iceServers=[]))
+            async def open_viewer(viewer_id, trickle=False, bundled=False):
+                browser = RTCPeerConnection(
+                    RTCConfiguration(
+                        iceServers=[],
+                        bundlePolicy=RTCBundlePolicy.MAX_BUNDLE
+                        if bundled
+                        else RTCBundlePolicy.BALANCED,
+                    )
+                )
                 browsers.append(browser)
                 tracks = {}
 
@@ -194,6 +206,16 @@ async def evaluate():
                 await browser.setLocalDescription(await browser.createOffer())
                 local = browser.localDescription.sdp
                 candidates = []
+                if bundled:
+                    lines = []
+                    video_section = False
+                    for line in local.splitlines():
+                        if line.startswith("m="):
+                            video_section = line.startswith("m=video")
+                        if video_section and line.startswith("a=candidate:"):
+                            continue
+                        lines.append(line)
+                    local = "\r\n".join(lines) + "\r\n"
                 if trickle:
                     lines = []
                     mid = None
@@ -357,10 +379,11 @@ async def evaluate():
                 and manager.call.answered
             )
             report["viewer_close_preserves_intercom_call"] = True
-            browser, tracks = await open_viewer("viewer-two")
+            browser, tracks = await open_viewer("viewer-two", bundled=True)
             await frames(tracks)
             assert manager.call.id == original_call
             report["reopen_same_intercom_call"] = True
+            report["max_bundle_shared_ice_transport"] = True
             seq = 2
             request("BYE")
             await response_for(200, "BYE")

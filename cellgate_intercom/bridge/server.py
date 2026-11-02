@@ -30,10 +30,64 @@ def complete_offer(sdp, candidates, codecs):
     if not isinstance(sdp, str) or len(sdp) > 60000 or not sdp.startswith("v=0"):
         raise BackendError("Invalid WebRTC offer")
     sections = sdp.replace("\r\n", "\n").strip().split("\nm=")
-    output = [sections[0]]
+    prepared = []
+    mids = {}
+    bundle = re.search(r"^a=group:BUNDLE (.+)$", sections[0], re.M)
+    bundled_mids = set(bundle[1].split()) if bundle else set()
     for index, section in enumerate(sections[1:]):
         lines = ("m=" + section).splitlines()
         mid = next((line[6:] for line in lines if line.startswith("a=mid:")), None)
+        for candidate in candidates:
+            if candidate.get("mid") == mid or (
+                candidate.get("mid") is None and candidate.get("index") == index
+            ):
+                value = candidate.get("candidate", "")
+                if not isinstance(value, str):
+                    continue
+                value = value.removeprefix("candidate:")
+                if (
+                    value
+                    and "\n" not in value
+                    and "\r" not in value
+                    and len(value) <= 2048
+                ):
+                    line = "a=candidate:" + value
+                    if line not in lines:
+                        lines.append(line)
+        prepared.append((mid, lines))
+        mids[mid] = lines
+
+    def ice_credentials(lines):
+        return tuple(
+            next(
+                (
+                    line
+                    for line in lines + sections[0].splitlines()
+                    if line.startswith(prefix)
+                ),
+                None,
+            )
+            for prefix in ("a=ice-ufrag:", "a=ice-pwd:")
+        )
+
+    output = [sections[0]]
+    for mid, lines in prepared:
+        # Chrome/max-bundle can trickle candidates only for the shared transport.
+        # Reuse them only when both media sections have identical ICE credentials.
+        if mid in bundled_mids and not any(
+            line.startswith("a=candidate:") for line in lines
+        ):
+            credentials = ice_credentials(lines)
+            if all(credentials):
+                for other_mid in bundled_mids:
+                    other = mids.get(other_mid, [])
+                    if ice_credentials(other) == credentials:
+                        shared = [
+                            line for line in other if line.startswith("a=candidate:")
+                        ]
+                        if shared:
+                            lines.extend(shared)
+                            break
         fields = lines[0].split()
         if fields[0] == "m=video" and fields[1] != "0":
             allowed = {
@@ -52,20 +106,6 @@ def complete_offer(sdp, candidates, codecs):
                 if not re.match(r"a=(?:rtpmap|fmtp|rtcp-fb):\d+", line)
                 or line.split(":", 1)[1].split()[0] in allowed
             ]
-        for candidate in candidates:
-            if candidate.get("mid") == mid or (
-                candidate.get("mid") is None and candidate.get("index") == index
-            ):
-                value = candidate.get("candidate", "").removeprefix("candidate:")
-                if (
-                    value
-                    and "\n" not in value
-                    and "\r" not in value
-                    and len(value) <= 2048
-                ):
-                    line = "a=candidate:" + value
-                    if line not in lines:
-                        lines.append(line)
         if (
             not any(line.startswith("a=candidate:") for line in lines)
             and fields[1] != "0"
@@ -98,6 +138,7 @@ class Bridge:
         self.lock = asyncio.Lock()
         self.offer_lock = asyncio.Lock()
         self.stopped = False
+        self.disabling = False
         self.next_probe = 0
 
     def snapshot(self):
@@ -228,7 +269,7 @@ class Bridge:
         if kind == "StasisStart":
             args = event.get("args", [])
             if args == ["incoming"]:
-                if not self.owner or self.call:
+                if not self.owner or self.call or self.disabling:
                     await self.ari("DELETE", f"/channels/{channel_id}", reason="busy")
                     return
                 video = await self.ari(
@@ -351,6 +392,7 @@ class Bridge:
         async with self.lock:
             if self.owner != owner:
                 return
+            self.disabling = True
             await self.end_call()
             # Keep the auth object alive while the registrar challenges the
             # Expires: 0 request. Removing it first prevents digest completion.
@@ -370,6 +412,7 @@ class Bridge:
             self.account = None
             self.peer = None
             self.registered = False
+            self.disabling = False
             await self.publish()
 
     def prepare(self, sid, call_id, sdp):
@@ -430,7 +473,8 @@ def application(bridge):
     @web.middleware
     async def authenticate(request, handler):
         if not hmac.compare_digest(
-            request.headers.get("Authorization", ""), "Bearer " + bridge.token
+            request.headers.get("Authorization", "").encode(),
+            ("Bearer " + bridge.token).encode(),
         ):
             raise web.HTTPUnauthorized()
         try:

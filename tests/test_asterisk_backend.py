@@ -257,3 +257,23 @@ async def test_camera_close_while_ice_gathering_releases_waiter():
     with pytest.raises(IntercomError):
         await task
     assert not manager.sessions
+
+
+def test_max_bundle_shared_candidates_require_identical_ice_credentials():
+    first = SDP.replace("a=group:BUNDLE 0", "a=group:BUNDLE 0 1")
+    video = (
+        SDP.split("m=video", 1)[1]
+        .replace("a=mid:0", "a=mid:1")
+        .replace("a=candidate:1 1 udp 1 192.0.2.1 12345 typ host\r\n", "")
+    )
+    offer = first + "m=video" + video
+    result = complete_offer(offer, [], {"h264"})
+    assert result.count("a=candidate:1 1 udp 1 192.0.2.1 12345 typ host") == 2
+    with pytest.raises(BackendError):
+        complete_offer(
+            first
+            + "m=video"
+            + video.replace("a=ice-ufrag:original", "a=ice-ufrag:different"),
+            [],
+            {"h264"},
+        )
