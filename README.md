@@ -1,6 +1,6 @@
 # CellGate for Home Assistant
 
-Unofficial Home Assistant custom integration using CellGate's **mobile API**. Version **0.3.1** fixes unnecessary camera image URLs, intercom option reloads, and late WebRTC candidate errors. Gate cover and experimental SIP intercom video/talk are included.
+Unofficial Home Assistant custom integration using CellGate's **mobile API**. Version **0.3.2** fixes duplicate SIP invitations after response-cache expiry and includes the 0.3.1 camera-authentication fixes. Gate cover and experimental SIP intercom video/talk are included.
 
 ## Gate
 

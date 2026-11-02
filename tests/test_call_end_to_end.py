@@ -423,3 +423,66 @@ async def test_stun_uses_the_same_rtp_socket(simulated_gate):
     finally:
         rtp.close()
         server.transport.close()
+
+
+async def test_duplicate_invite_after_global_cache_eviction_keeps_ringing(
+    simulated_gate,
+):
+    gate, manager = simulated_gate
+    gate.request("INVITE", offer(gate.ip, 40000))
+    await gate.response(180)
+    original = manager.call
+    manager.cache.clear()  # The bounded global cache can expire or evict entries.
+    gate.request("INVITE", offer(gate.ip, 40000))
+    packet, _ = await asyncio.wait_for(gate.messages.get(), 2)
+    assert Message.parse(packet).status == 180
+    assert manager.call is original and manager.ring_sequence == 1
+
+
+async def test_duplicate_accepted_invite_repeats_original_answer_after_eviction(
+    simulated_gate,
+):
+    gate, manager = simulated_gate
+    audio = Port()
+    loop = asyncio.get_running_loop()
+    await loop.create_datagram_endpoint(lambda: audio, local_addr=(gate.ip, 0))
+    try:
+        body = offer(gate.ip, audio.address[1])
+        gate.request("INVITE", body)
+        await gate.response(180)
+        original = manager.call
+        await manager.accept()
+        accepted = await gate.response(200, "INVITE")
+        tag = accepted.get("to").split(";tag=")[1]
+        gate.request("ACK", tag=tag)
+        await eventually(lambda: manager.state == "active")
+        manager.cache.clear()
+        gate.request("INVITE", body)
+        packet, _ = await asyncio.wait_for(gate.messages.get(), 2)
+        response = Message.parse(packet)
+        assert response.status == 200 and response.body == accepted.body
+        assert response.get("to") == accepted.get("to")
+        assert manager.call is original and manager.ring_sequence == 1
+        gate.request("BYE", tag=tag)
+        await gate.response(200, "BYE")
+        await eventually(lambda: manager.call is None)
+        gate.request("INVITE", body)
+        packet, _ = await asyncio.wait_for(gate.messages.get(), 2)
+        assert Message.parse(packet).status == 200
+        assert manager.call is None and manager.ring_sequence == 1
+    finally:
+        audio.transport.close()
+
+
+async def test_different_invite_is_not_treated_as_retransmission(simulated_gate):
+    gate, manager = simulated_gate
+    body = offer(gate.ip, 40000)
+    gate.request("INVITE", body)
+    await gate.response(180)
+    original = manager.call
+    manager.cache.clear()
+    gate.branch = "z9hG4bK-different-transaction"
+    gate.request("INVITE", body)
+    packet, _ = await asyncio.wait_for(gate.messages.get(), 2)
+    assert Message.parse(packet).status == 488
+    assert manager.call is original and manager.ring_sequence == 1

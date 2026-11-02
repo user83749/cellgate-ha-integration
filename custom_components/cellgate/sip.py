@@ -472,6 +472,24 @@ class SipReceiver(asyncio.DatagramProtocol):
                 )
                 return
             if method == "INVITE":
+                if (
+                    matches
+                    and peer == call.peer
+                    and request.branch == call.request.branch
+                    and request.get("cseq") == call.request.get("cseq")
+                    and request.start == call.request.start
+                ):
+                    # The dialog outlives the bounded global response cache.
+                    # Repeat its response, never reject/recreate a retransmitted
+                    # INVITE or increment the ringing event again.
+                    if call.answer_packet is not None:
+                        self.transport.sendto(call.answer_packet, peer)
+                        self.cache[key] = (time.monotonic(), call.answer_packet)
+                        while len(self.cache) > 64:
+                            self.cache.popitem(last=False)
+                    else:
+                        self.response(request, peer, 180, "Ringing", tag=call.tag)
+                    return
                 if call:
                     self.response(
                         request,

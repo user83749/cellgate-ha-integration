@@ -1,6 +1,6 @@
 # Call and media implementation
 
-Version 0.3.1 implements an opt-in SIP receiver and native Home Assistant WebRTC camera. This is an initial, bounded SIP profile, not a general-purpose PBX or a claim of complete SIP interoperability.
+Version 0.3.2 implements an opt-in SIP receiver and native Home Assistant WebRTC camera. This is an initial, bounded SIP profile, not a general-purpose PBX or a claim of complete SIP interoperability.
 
 ## Camera authentication hotfix
 
@@ -9,6 +9,12 @@ The inherited camera picture property advertised a tokenized image-proxy URL eve
 The integration now publishes no snapshot URL and keeps its camera/manager objects registered across intercom-option changes. The option starts/stops SIP in place instead of reloading the config entry. Late ICE candidates after rejected offers or closed sessions are harmless no-ops. HA authentication and IP-ban middleware are unchanged.
 
 Tests use an actual local HA HTTP server with a one-failure ban threshold. Repeated intercom toggles preserve camera identity/tokens and produce no failed-auth counts. The WebSocket regression verifies candidates after an unavailable offer return clean results instead of uncaught exceptions.
+
+## SIP reference review
+
+A comparison with SIP Indoor Station identified an active-dialog response retention gap: the generic response cache expires after 32 seconds or can evict entries. Previously an identical INVITE arriving after eviction reached the new-call/re-INVITE rejection branch and received 488. The live dialog now repeats its ringing or original successful answer independently of that cache. It preserves the call, tag and ring-event count. Replayed successful answers are retained briefly after call end; a different transaction is still rejected. Regression tests reproduce the old rejection and verify ringing, accepted and ended-call behavior.
+
+This is a locally demonstrated edge case, not a diagnosis of an observed incoming CellGate call. See [reference comparison](reference-integrations.md#sip-and-webrtc-reference-review).
 
 ## Lifecycle
 
