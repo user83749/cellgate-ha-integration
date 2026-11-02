@@ -14,6 +14,8 @@ This companion service runs Asterisk for the CellGate Home Assistant custom inte
 | `stun_server` | stun.l.google.com:19302 | STUN discovery for WebRTC ICE; empty disables it |
 | `external_address` | empty | Public IP or DNS hostname for SIP/media address advertisement, when required by NAT |
 
+The intercom is on the Internet, not your LAN. At startup the service discovers your public address with `stun_server` and advertises it to CellGate; the log line **Advertising public address** confirms it. If that is wrong (for example a VPN egress), set `external_address`. If calls ring but video/audio stay black, forward UDP `sip_port` and `rtp_start`–`rtp_end` from your router to this host.
+
 Use an IP/DNS hostname without `http://` or a port in `external_address`; your existing public DNS name can be used there. It is distinct from the HA integration's backend URL, which is normally `http://HOME_ASSISTANT_LAN_IP:28190`. The browser uses the ICE addresses in Asterisk's answer, so both local and remote clients need a reachable media route.
 
 Host networking is required. The control API is intended for the trusted HA network and requires the independent token. A public discovery endpoint reports only the product/API version and readiness; the integration checks this before sending a token, so a mistaken HA dashboard URL receives no backend credentials. Do not expose the backend HTTP API or Asterisk's local ARI port through the HA remote-access URL. Existing remote HTTPS access to HA handles the UI; it does not automatically relay WebRTC media across every NAT/firewall. TURN relay configuration is not included. The actual CellGate call's NAT behavior still needs a live test.

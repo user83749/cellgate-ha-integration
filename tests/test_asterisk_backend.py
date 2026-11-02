@@ -58,8 +58,10 @@ def test_codec_filter_preserves_browser_ice_dtls_and_h264_format():
         ):
             assert line in result
     assert result.count("a=end-of-candidates") == 1
-    with pytest.raises(BackendError):
-        complete_offer(SDP, [], {"h263"})
+    # No forwardable intercom video: decline video instead of failing the call.
+    audio_only = complete_offer(SDP, [], set())
+    assert "m=video 0 UDP/TLS/RTP/SAVPF 96\r\n" in audio_only
+    assert "a=group:BUNDLE" not in audio_only
 
 
 def test_trickle_candidates_attached_to_correct_media_without_header_injection():

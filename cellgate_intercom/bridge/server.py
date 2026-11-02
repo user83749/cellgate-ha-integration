@@ -5,15 +5,24 @@ import asyncio
 from contextlib import suppress
 from dataclasses import dataclass, field
 import hmac
+import logging
 import re
 import secrets
 
 import aiohttp
 from aiohttp import web
-from .config import BackendError, config_value, host_port, resolve_next_hop
+from .config import (
+    BackendError,
+    config_value,
+    host_addresses,
+    host_port,
+    resolve_next_hop,
+)
 from .signaling import Viewer
 
 API_VERSION = 1
+LOGGER = logging.getLogger(__name__)
+RELOAD = "module reload res_pjsip.so res_pjsip_authenticator_digest.so res_pjsip_endpoint_identifier_ip.so res_pjsip_outbound_registration.so"
 
 
 @dataclass
@@ -71,6 +80,7 @@ def complete_offer(sdp, candidates, codecs):
         )
 
     output = [sections[0]]
+    rejected = set()
     for mid, lines in prepared:
         # Chrome/max-bundle can trickle candidates only for the shared transport.
         # Reuse them only when both media sections have identical ICE credentials.
@@ -96,9 +106,17 @@ def complete_offer(sdp, candidates, codecs):
                 if line.startswith("a=rtpmap:")
                 and line.split()[1].split("/")[0].lower() in codecs
             }
+            if not allowed:
+                # No forwardable intercom video: still connect audio/talk.
+                fields = fields[:1] + ["0"] + fields[2:4]
+                lines = [" ".join(fields)] + [
+                    line for line in lines if line.startswith("a=mid:")
+                ]
+                lines.append("a=inactive")
+                rejected.add(mid)
+                output.append("\n".join(lines))
+                continue
             fields = fields[:3] + [pt for pt in fields[3:] if pt in allowed]
-            if len(fields) == 3:
-                raise BackendError("No shared intercom and viewer video codec")
             lines[0] = " ".join(fields)
             lines = [
                 line
@@ -114,7 +132,12 @@ def complete_offer(sdp, candidates, codecs):
         if "a=end-of-candidates" not in lines:
             lines.append("a=end-of-candidates")
         output.append("\n".join(lines))
-    return "\r\n".join("\n".join(output).splitlines()) + "\r\n"
+    if rejected and bundle:
+        kept = [m for m in bundle[1].split() if m not in rejected]
+        output[0] = output[0].replace(
+            bundle[0], "a=group:BUNDLE " + " ".join(kept) if kept else ""
+        )
+    return "\r\n".join(line for line in "\n".join(output).splitlines() if line) + "\r\n"
 
 
 class Bridge:
@@ -212,7 +235,8 @@ class Bridge:
                         if message.type == aiohttp.WSMsgType.TEXT:
                             try:
                                 await self.event(message.json())
-                            except (BackendError, aiohttp.ClientError, TimeoutError):
+                            except Exception:  # keep receiving future calls
+                                LOGGER.exception("Unable to handle an Asterisk call event")
                                 self.last_error = (
                                     "Unable to handle an Asterisk call event"
                                 )
@@ -227,40 +251,58 @@ class Bridge:
                 await asyncio.sleep(3)
 
     async def monitor(self):
+        next_nat = 0
         while not self.stopped:
             try:
                 status = await self.config.cli("pjsip show registrations")
                 registered = bool(self.owner and re.search(r"\bRegistered\b", status))
                 if registered != self.registered:
                     self.registered = registered
+                    LOGGER.info(
+                        "CellGate SIP registration %s",
+                        "active" if registered else "lost",
+                    )
                     await self.publish()
-            except (BackendError, TimeoutError):
+            except (BackendError, OSError, TimeoutError):
                 self.registered = False
                 await self.publish()
             now = asyncio.get_running_loop().time()
-            if (
-                self.owner
-                and not self.registered
-                and not self.call
-                and now >= self.next_probe
-            ):
-                self.next_probe = now + 60
-                try:
+            try:
+                if now >= next_nat and not self.call:
+                    next_nat = now + 600
+                    # A changed public IP would silently break incoming media.
+                    if await asyncio.to_thread(self.config.nat):
+                        LOGGER.info("Public address changed; updating SIP/media advertisement")
+                        await self.config.cli("module reload res_pjsip.so")
+                if (
+                    self.owner
+                    and not self.registered
+                    and not self.call
+                    and now >= self.next_probe
+                ):
+                    self.next_probe = now + 60
                     async with self.lock:
                         account = self.account
                         if account and not self.call:
                             peer = await resolve_next_hop(account)
                             if peer != self.peer:
-                                self.config.write(
-                                    "provider.conf", self.config.provider(account, peer)
-                                )
+                                await self.apply(account, peer)
+                            else:
+                                # Restart a registration Asterisk gave up on.
                                 await self.config.cli(
-                                    "module reload res_pjsip.so res_pjsip_authenticator_digest.so res_pjsip_endpoint_identifier_ip.so res_pjsip_outbound_registration.so"
+                                    "pjsip send register cellgate-registration"
                                 )
-                                self.peer = peer
-                except (BackendError, OSError, TimeoutError):
-                    pass
+            except Exception:
+                LOGGER.warning("SIP registration recovery attempt failed")
             await asyncio.sleep(5)
+
+    async def apply(self, account, peer):
+        addresses = await host_addresses(account)
+        self.config.write(
+            "provider.conf", self.config.provider(account, peer, addresses)
+        )
+        await self.config.cli(RELOAD)
+        self.peer = peer
 
     async def event(self, event):
         kind = event.get("type")
@@ -272,24 +314,29 @@ class Bridge:
                 if not self.owner or self.call or self.disabling:
                     await self.ari("DELETE", f"/channels/{channel_id}", reason="busy")
                     return
-                video = await self.ari(
-                    "GET",
-                    f"/channels/{channel_id}/variable",
-                    variable="PJSIP_MEDIA_OFFER(video)",
-                )
-                audio = await self.ari(
-                    "GET",
-                    f"/channels/{channel_id}/variable",
-                    variable="PJSIP_MEDIA_OFFER(audio)",
+                offered = {}
+                for kind in ("audio", "video"):
+                    # A failed lookup must not leave the gate ringing unseen.
+                    try:
+                        reply = await self.ari(
+                            "GET",
+                            f"/channels/{channel_id}/variable",
+                            variable=f"PJSIP_MEDIA_OFFER({kind})",
+                        )
+                        offered[kind] = str((reply or {}).get("value") or "").lower()
+                    except (BackendError, aiohttp.ClientError, TimeoutError):
+                        offered[kind] = ""
+                LOGGER.info(
+                    "Incoming intercom call; audio [%s], video [%s]",
+                    offered["audio"] or "none",
+                    offered["video"] or "none",
                 )
                 self.call = {
                     "id": secrets.token_hex(16),
                     "channel": channel_id,
                     "answered": False,
-                    "video": set(
-                        re.findall(r"\b(?:h264|vp8)\b", video.get("value", "").lower())
-                    ),
-                    "audio": bool(audio.get("value")),
+                    "video": set(re.findall(r"\b(?:h264|vp8)\b", offered["video"])),
+                    "audio": True,
                 }
                 self.ring_sequence += 1
                 self.last_error = None
@@ -354,13 +401,9 @@ class Bridge:
                     "SIP configuration cannot change during an active call"
                 )
             peer = await resolve_next_hop(account)
-            self.config.write("provider.conf", self.config.provider(account, peer))
-            await self.config.cli(
-                "module reload res_pjsip.so res_pjsip_authenticator_digest.so res_pjsip_endpoint_identifier_ip.so res_pjsip_outbound_registration.so"
-            )
+            await self.apply(account, peer)
             self.account = dict(account)
             self.owner = owner
-            self.peer = peer
             self.next_probe = asyncio.get_running_loop().time() + 60
             self.last_error = None
             await self.publish()
@@ -405,9 +448,7 @@ class Bridge:
                     ):
                         await asyncio.sleep(0.1)
             self.config.write("provider.conf", "")
-            await self.config.cli(
-                "module reload res_pjsip.so res_pjsip_authenticator_digest.so res_pjsip_endpoint_identifier_ip.so res_pjsip_outbound_registration.so"
-            )
+            await self.config.cli(RELOAD)
             self.owner = None
             self.account = None
             self.peer = None

@@ -33,6 +33,9 @@ async def async_setup_entry(hass, entry, async_add_entities):
 class CellGateCover(CellGateEntity, CoverEntity):
     _attr_device_class = CoverDeviceClass.GATE
     _attr_supported_features = CoverEntityFeature.OPEN
+    # State is the relay's reported label, not a position sensor. Without this
+    # HA greys out Open whenever the label reads "open".
+    _attr_assumed_state = True
 
     def __init__(self, coordinator, port_id):
         super().__init__(coordinator, port_id, "gate")
@@ -53,11 +56,10 @@ class CellGateCover(CellGateEntity, CoverEntity):
         return {
             "reported_state": self.port.get("state_label"),
             "last_state": self.port.get("last_state"),
+            "online": self.port.get("is_online"),
         }
 
     async def async_open_cover(self, **kwargs):
-        if not self.available:
-            raise HomeAssistantError("Gate is unavailable")
         try:
             await self.coordinator.client.command(self.port)
         except CellGateAuthError as err:

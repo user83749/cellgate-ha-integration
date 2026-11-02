@@ -29,8 +29,6 @@ class CellGateEntity(CoordinatorEntity):
 
     @property
     def available(self):
-        return (
-            super().available
-            and bool(self.port)
-            and self.port.get("is_online") is not False
-        )
+        # Cellular gates often report offline between check-ins while still
+        # accepting commands; CellGate itself rejects a command it cannot send.
+        return super().available and bool(self.port)

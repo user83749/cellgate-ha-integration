@@ -5,10 +5,33 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import signal
 from aiohttp import web
 from .config import BackendError, Configuration
 from .server import Bridge, application
+
+SECRET = re.compile(r"(password|secret|response|nonce|cnonce)=\S+", re.I)
+
+
+async def relay_log(path):
+    """Copy Asterisk notices/warnings (rejected calls, codec/NAT errors) to the add-on log."""
+    position = 0
+    while True:
+        try:
+            size = path.stat().st_size
+            if size < position:
+                position = 0
+            if size > position:
+                with path.open(errors="replace") as handle:
+                    handle.seek(position)
+                    for line in handle.read().splitlines():
+                        if line.strip():
+                            logging.info("asterisk: %s", SECRET.sub(r"\1=***", line))
+                    position = handle.tell()
+        except OSError:
+            pass
+        await asyncio.sleep(1)
 
 
 async def main():
@@ -28,6 +51,15 @@ async def main():
     root = Path(os.environ.get("CELLGATE_RUNTIME", "/data/runtime"))
     config = Configuration(root, options)
     await asyncio.to_thread(config.initialize)
+    if config.external:
+        logging.info("Advertising public address %s to CellGate", config.external)
+    else:
+        logging.warning(
+            "Public address unknown (STUN failed and external_address empty); "
+            "intercom audio/video will not reach this backend"
+        )
+    (root / "log" / "messages.log").unlink(missing_ok=True)
+    log_task = asyncio.create_task(relay_log(root / "log" / "messages.log"))
     engine = await asyncio.create_subprocess_exec(
         "/usr/sbin/asterisk",
         "-f",
@@ -69,6 +101,7 @@ async def main():
                 engine.kill()
                 await engine.wait()
         await asyncio.to_thread(config.write, "provider.conf", "")
+        log_task.cancel()
 
 
 if __name__ == "__main__":

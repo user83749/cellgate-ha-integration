@@ -13,3 +13,4 @@ htmlcov/
 *.sip
 
 .ruff_cache/
+probe-output/

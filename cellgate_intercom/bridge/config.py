@@ -13,6 +13,57 @@ class BackendError(Exception):
     """Safe, public error text only."""
 
 
+# Addresses Asterisk must not rewrite to the public address.
+LOCAL_NETS = (
+    "127.0.0.0/8",
+    "10.0.0.0/8",
+    "172.16.0.0/12",
+    "192.168.0.0/16",
+    "169.254.0.0/16",
+)
+
+
+def public_address(server):
+    """Return this network's public IPv4 address from one STUN binding request."""
+    host, port = host_port(server)
+    transaction = secrets.token_bytes(12)
+    request = b"\x00\x01\x00\x00\x21\x12\xa4\x42" + transaction
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.settimeout(1.5)
+        for _ in range(3):
+            try:
+                sock.sendto(request, (host, port))
+                data = sock.recv(2048)
+            except OSError:
+                continue
+            if len(data) < 20 or data[8:20] != transaction:
+                continue
+            offset = 20
+            while offset + 4 <= len(data):
+                kind = int.from_bytes(data[offset : offset + 2], "big")
+                size = int.from_bytes(data[offset + 2 : offset + 4], "big")
+                value = data[offset + 4 : offset + 4 + size]
+                if kind in (0x0020, 0x8020) and len(value) >= 8 and value[1] == 1:
+                    raw = bytes(a ^ b for a, b in zip(value[4:8], b"\x21\x12\xa4\x42"))
+                    return str(ipaddress.IPv4Address(raw))
+                if kind == 0x0001 and len(value) >= 8 and value[1] == 1:
+                    return str(ipaddress.IPv4Address(value[4:8]))
+                offset += 4 + size + (-size % 4)
+    return None
+
+
+async def host_addresses(account):
+    """All IPv4 addresses of the provisioned SIP host, for call identification."""
+    host, port = host_port(account["host"])
+    try:
+        resolved = await asyncio.get_running_loop().getaddrinfo(
+            host, port, family=socket.AF_INET, type=socket.SOCK_DGRAM
+        )
+    except OSError:
+        return []
+    return sorted({item[4][0] for item in resolved})
+
+
 def host_port(value):
     match = re.fullmatch(r"(?:sip:)?([A-Za-z0-9.-]+)(?::([0-9]{1,5}))?", value or "")
     if not match or not 1 <= int(match[2] or 5060) <= 65535:
@@ -131,6 +182,30 @@ class Configuration:
         self.sip_password = secrets.token_hex(32)
         self.http_port = int(options.get("asterisk_http_port", 18088))
         self.sip_port = int(options.get("sip_port", 15060))
+        self.external = ""  # never a discovery result, so the first nat() writes
+
+    def nat(self):
+        """Advertise the public address to CellGate; the gate is not on this LAN.
+
+        Without this, SIP Contact and SDP carry the private LAN address and the
+        intercom's audio/video never reaches Asterisk. Returns True if changed.
+        """
+        external = self.options.get("external_address", "")
+        if not external:
+            stun = self.options.get("stun_server", "stun.l.google.com:19302")
+            external = public_address(stun) if stun else None
+        if external == self.external:
+            return False
+        self.external = external
+        lines = [f"local_net={net}" for net in LOCAL_NETS]
+        if external:
+            lines += [
+                f"external_signaling_address={config_value(external)}",
+                f"external_signaling_port={self.sip_port}",
+                f"external_media_address={config_value(external)}",
+            ]
+        self.write("nat.conf", "\n".join(lines) + "\n")
+        return True
 
     @property
     def ari_url(self):
@@ -198,9 +273,15 @@ verbose=0
         )
         self.write(
             "modules.conf",
-            "[modules]\nautoload=yes\nnoload=chan_dongle.so\nnoload=res_http_post.so\nnoload=app_voicemail.so\n",
+            # The username identifier would let any host claiming From: provider
+            # in as the intercom; endpoints are identified by address/line only.
+            "[modules]\nautoload=yes\nnoload=chan_dongle.so\nnoload=res_http_post.so\nnoload=app_voicemail.so\nnoload=res_pjsip_endpoint_identifier_user.so\n",
         )
-        self.write("logger.conf", "[general]\n[logfiles]\nconsole=error\n")
+        # The controller relays this file into the add-on log.
+        self.write(
+            "logger.conf",
+            "[general]\ndateformat=%T\n[logfiles]\nmessages.log => notice,warning,error,verbose(3)\n",
+        )
         self.write(
             "http.conf",
             f"[general]\nenabled=yes\nbindaddr=127.0.0.1\nbindport={self.http_port}\n",
@@ -217,31 +298,30 @@ verbose=0
         )
         self.write(
             "extensions.conf",
+            # Accept whatever user part CellGate puts in the Request-URI.
             """[cellgate-incoming]
-exten => gate,1,Stasis(cellgate,incoming)
+exten => _.,1,Stasis(cellgate,incoming)
+same => n,Hangup()
+exten => s,1,Stasis(cellgate,incoming)
 same => n,Hangup()
 [cellgate-viewer]
 exten => view,1,Stasis(cellgate,viewer,${PJSIP_HEADER(read,X-CellGate-Call)},${PJSIP_HEADER(read,X-CellGate-Session)})
 same => n,Hangup()
 """,
         )
-        external = self.options.get("external_address", "")
-        nat = (
-            f"external_signaling_address={config_value(external)}\nexternal_media_address={config_value(external)}\n"
-            if external
-            else ""
-        )
+        self.nat()
         self.write(
             "pjsip.conf",
             f"""[global]
 type=global
 user_agent=CellGate-Intercom
-endpoint_identifier_order=ip,username
+endpoint_identifier_order=ip
 [udp]
 type=transport
 protocol=udp
 bind=0.0.0.0:{self.sip_port}
-{nat}
+allow_reload=yes
+#include nat.conf
 [ws]
 type=transport
 protocol=ws
@@ -258,6 +338,10 @@ rtp_symmetric=yes
 force_rport=yes
 rewrite_contact=yes
 auth=viewer-auth
+[ha-viewer-identify]
+type=identify
+endpoint=ha-viewer
+match=127.0.0.1
 [viewer-auth]
 type=auth
 auth_type=userpass
@@ -269,11 +353,14 @@ password={self.sip_password}
         # Never reuse cloud credentials left by a previous process.
         self.write("provider.conf", "")
 
-    def provider(self, account, peer):
+    def provider(self, account, peer, addresses=()):
         from urllib.parse import quote
 
         host, _ = host_port(account["host"])
         user = quote(account["username"], safe="-_.!~*'()")
+        sources = ",".join(sorted({peer[0], *addresses}))
+        # line/endpoint: calls carrying our registered Contact are identified
+        # even when CellGate sends them from a server other than the registrar.
         return f"""[cellgate-registration]
 type=registration
 transport=udp
@@ -281,11 +368,13 @@ outbound_auth=cellgate-auth
 server_uri=sip:{config_value(account["host"].removeprefix("sip:"))}
 client_uri=sip:{user}@{host}
 contact_user=gate
+line=yes
+endpoint=provider
 expiration=60
 retry_interval=30
 fatal_retry_interval=0
 forbidden_retry_interval=0
-max_retries=3
+max_retries=100000
 outbound_proxy=sip:{peer[0]}:{peer[1]}\\;lr
 [cellgate-auth]
 type=auth
@@ -296,12 +385,15 @@ password={config_value(account["password"])}
 type=endpoint
 transport=udp
 context=cellgate-incoming
+outbound_auth=cellgate-auth
 disallow=all
 allow=ulaw,alaw,g722,opus,h264,vp8
 direct_media=no
 rtp_symmetric=yes
 force_rport=yes
 rewrite_contact=yes
+ice_support=yes
+rtp_keepalive=1
 media_encryption=sdes
 media_encryption_optimistic=yes
 aors=provider-aor
@@ -313,7 +405,7 @@ qualify_timeout=3
 [provider-identify]
 type=identify
 endpoint=provider
-match={peer[0]}
+match={sources}
 """
 
     async def cli(self, command):

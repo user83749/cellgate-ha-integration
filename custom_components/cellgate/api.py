@@ -310,7 +310,13 @@ class CellGateClient:
     @staticmethod
     def _success(reply: dict) -> dict:
         if reply.get("isSuccess") is not True:
-            raise CellGateRejectedError("CellGate rejected the mobile request")
+            # Keep CellGate's own reason; it is the only clue why a command failed.
+            data = reply.get("data")
+            reason = (data.get("result") if isinstance(data, dict) else None) or reply.get(
+                "message"
+            )
+            detail = f": {str(reason).strip()[:200]}" if reason else ""
+            raise CellGateRejectedError("CellGate rejected the mobile request" + detail)
         return reply
 
     async def _read(self, endpoint: str, form: dict[str, str] | None = None) -> dict:

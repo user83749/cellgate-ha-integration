@@ -1,5 +1,5 @@
 name: CellGate Intercom
-version: 0.4.0
+version: 0.4.1
 slug: cellgate_intercom
 description: Asterisk media backend for the CellGate custom integration
 url: https://github.com/user83749/cellgate-ha-integration
