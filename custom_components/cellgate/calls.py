@@ -113,8 +113,10 @@ class CallManager(SipReceiver):
 
     async def candidate(self, session_id, value, mid=None, index=None):
         pc = self.sessions.get(session_id)
-        if pc is None:
-            raise SipError("WebRTC session no longer exists")
+        if pc is None or pc.connectionState == "closed":
+            # Browsers continue trickling candidates after an unavailable
+            # offer, cancellation or closed viewer. These are normal no-ops.
+            return
         if not value:
             await pc.addIceCandidate(None)
             return

@@ -205,6 +205,12 @@ async def test_registration_retransmission_cancel_and_cleanup(simulated_gate):
     assert gate.registrations[-1].get("expires") == "0"
     assert "*" not in gate.registrations[-1].get("contact")
     assert not manager.tasks and not manager.pending and not manager.sessions
+    # Disabling/re-enabling calls reuses the manager and must register again.
+    await manager.start()
+    await eventually(lambda: manager.registered)
+    assert not manager.closed
+    await manager.stop()
+    assert gate.registrations[-1].get("expires") == "0"
 
 
 class Microphone(AudioStreamTrack):

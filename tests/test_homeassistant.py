@@ -44,7 +44,11 @@ async def setup(hass):
 async def test_entities_trigger_and_unload(hass):
     entry = await setup(hass)
     assert entry.state is ConfigEntryState.LOADED
-    assert not hass.states.async_entity_ids("camera")
+    assert len(hass.states.async_entity_ids("camera")) == 1
+    assert (
+        hass.states.get(hass.states.async_entity_ids("camera")[0]).state
+        == "unavailable"
+    )
     covers = hass.states.async_entity_ids("cover")
     assert len(covers) == 1
     assert not hass.states.async_entity_ids("sensor")
@@ -208,7 +212,7 @@ async def test_optional_persistent_camera_event_and_unload(hass):
     assert manager.closed and not manager.listeners
 
 
-async def test_options_reload_unloads_previous_call_platforms(hass):
+async def test_options_toggle_preserves_camera_and_manager(hass):
     from homeassistant.components.camera import DATA_COMPONENT
 
     entry = MockConfigEntry(
@@ -236,8 +240,9 @@ async def test_options_reload_unloads_previous_call_platforms(hass):
         )
         assert result["type"] is FlowResultType.CREATE_ENTRY
         await hass.async_block_till_done()
-        assert old.closed and entry.runtime_data.calls is None
-        assert hass.data[DATA_COMPONENT].get_entity(camera_id) is None
+        assert old.closed and entry.runtime_data.calls is old
+        assert hass.data[DATA_COMPONENT].get_entity(camera_id) is not None
+        assert hass.states.get(camera_id).state == "unavailable"
 
 
 async def test_upgrade_retires_only_legacy_trigger_button(hass):

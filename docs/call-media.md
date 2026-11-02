@@ -1,6 +1,14 @@
 # Call and media implementation
 
-Version 0.3.0 implements an opt-in SIP receiver and native Home Assistant WebRTC camera. This is an initial, bounded SIP profile, not a general-purpose PBX or a claim of complete SIP interoperability.
+Version 0.3.1 implements an opt-in SIP receiver and native Home Assistant WebRTC camera. This is an initial, bounded SIP profile, not a general-purpose PBX or a claim of complete SIP interoperability.
+
+## Camera authentication hotfix
+
+The inherited camera picture property advertised a tokenized image-proxy URL even though this integration supplies no snapshots. The incident log showed Firefox requests to that route being counted as invalid authentication, followed by a ban. A local regression reproduces a camera URL request after entity removal returning 401 and triggering Core's ban middleware without any password-login request.
+
+The integration now publishes no snapshot URL and keeps its camera/manager objects registered across intercom-option changes. The option starts/stops SIP in place instead of reloading the config entry. Late ICE candidates after rejected offers or closed sessions are harmless no-ops. HA authentication and IP-ban middleware are unchanged.
+
+Tests use an actual local HA HTTP server with a one-failure ban threshold. Repeated intercom toggles preserve camera identity/tokens and produce no failed-auth counts. The WebSocket regression verifies candidates after an unavailable offer return clean results instead of uncaught exceptions.
 
 ## Lifecycle
 

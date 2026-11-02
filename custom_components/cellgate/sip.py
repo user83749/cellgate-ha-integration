@@ -227,6 +227,7 @@ class SipReceiver(asyncio.DatagramProtocol):
 
     async def start(self):
         if self.worker is None:
+            self.closed = False
             self.worker = asyncio.create_task(self.registration_loop())
 
     async def open_transport(self):

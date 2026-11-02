@@ -12,5 +12,5 @@
   "requirements": [
     "aiortc@https://github.com/aiortc/aiortc/archive/87d83729b2a4528dbf97c5d892ae487581157c3b.zip"
   ],
-  "version": "0.3.0"
+  "version": "0.3.1"
 }

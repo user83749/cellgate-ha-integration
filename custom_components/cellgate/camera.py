@@ -3,6 +3,7 @@
 from homeassistant.components.camera import Camera, CameraEntityFeature
 from homeassistant.components.camera.webrtc import WebRTCAnswer, WebRTCError
 from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 
 try:
@@ -39,6 +40,16 @@ class CellGateCamera(Camera):
             name="CellGate intercom",
             model="SIP intercom",
         )
+
+    @property
+    def entity_picture(self):
+        """WebRTC-only camera: do not publish a tokenized snapshot URL.
+
+        There is no image endpoint behind this integration. A stale image URL
+        can survive options reloads in a browser and hit Core's camera auth
+        handling after the old entity has been removed.
+        """
+        return None
 
     @property
     def available(self):
@@ -85,12 +96,19 @@ class CellGateCamera(Camera):
             )
 
     async def async_on_webrtc_candidate(self, session_id, candidate):
-        await self.manager.candidate(
-            session_id,
-            candidate.candidate,
-            candidate.sdp_mid,
-            candidate.sdp_m_line_index,
-        )
+        try:
+            await self.manager.candidate(
+                session_id,
+                candidate.candidate,
+                candidate.sdp_mid,
+                candidate.sdp_m_line_index,
+            )
+        except (SipError, MediaError) as err:
+            raise HomeAssistantError(str(err)) from None
+        except Exception:
+            raise HomeAssistantError(
+                "Unable to process the intercom connection candidate"
+            ) from None
 
     @callback
     def close_webrtc_session(self, session_id):

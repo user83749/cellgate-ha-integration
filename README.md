@@ -1,6 +1,6 @@
 # CellGate for Home Assistant
 
-Unofficial Home Assistant custom integration using CellGate's **mobile API**. Version **0.3.0** adds a gate cover and experimental SIP intercom video/talk.
+Unofficial Home Assistant custom integration using CellGate's **mobile API**. Version **0.3.1** fixes unnecessary camera image URLs, intercom option reloads, and late WebRTC candidate errors. Gate cover and experimental SIP intercom video/talk are included.
 
 ## Gate
 
@@ -10,7 +10,7 @@ A raw reported-state sensor is available as a diagnostic entity, disabled by def
 
 ## Intercom calls — experimental
 
-Enable **Intercom calls** in the integration's configuration options. This adds:
+The camera and incoming-call event entities stay registered even while call support is disabled. Enable **Intercom calls** in the integration's configuration options to start the SIP receiver:
 
 - One persistent Home Assistant WebRTC camera entity for the account, reused for every call's video and audio. It remains registered but unavailable to stream between calls.
 - An incoming-call event entity, with event type `ring`, for automations.
@@ -21,6 +21,8 @@ Opening the camera while the intercom rings answers the SIP call. Closing the vi
 Supported initial media profile: SIP over IPv4/UDP; H.264 or VP8 video; PCMU/PCMA (G.711) or G.722 audio; RTP/AVP(F), or SDES SRTP with `AES_CM_128_HMAC_SHA1_80`. Formats are negotiated from the incoming SDP, not inferred from codec IDs in provisioning. SIP ICE/DTLS, other encryption profiles and video codecs such as H.263 are not implemented. One HA viewer is supported at a time. This is a native WebRTC camera; there is no reusable RTSP/HLS URL or stored-picture substitute.
 
 Home Assistant **2026.11** introduces the standard camera talk interface as a Labs preview. Enable that preview and open HA over HTTPS to use its microphone control. The backend's audio return was tested with a real WebRTC microphone track. Camera API/capability checks also passed on Core 2026.11.0b3. Core 2026.10.4 has full integration lifecycle coverage, but does not provide that new standard talk control.
+
+Changing the intercom option starts/stops its receiver in place, without recreating the camera or its tokens. The WebRTC-only camera does not advertise a tokenized snapshot URL.
 
 Google STUN (`stun.l.google.com:19302`) is used for media address discovery. A TURN relay is not included, so restrictive NAT/firewall configurations may need further work. Concurrent behavior with the CellGate mobile app and the real incoming intercom media path remain unverified.
 

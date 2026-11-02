@@ -53,20 +53,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     coordinator = CellGateCoordinator(hass, entry, client)
     await coordinator.async_config_entry_first_refresh()
-    if entry.options.get(CONF_ENABLE_CALLS, False):
-        from .calls import CallManager
+    from .calls import CallManager
 
-        coordinator.calls = CallManager(
-            client.get_sip_account, stun_server=DEFAULT_STUN_SERVER
-        )
-        entry.async_on_unload(coordinator.calls.stop)
+    # Keep one camera/manager for the config entry, including while calls are
+    # disabled. An options toggle must not remove/recreate tokenized HA entities.
+    coordinator.calls = CallManager(
+        client.get_sip_account, stun_server=DEFAULT_STUN_SERVER
+    )
+    entry.async_on_unload(coordinator.calls.stop)
 
-        async def stop_calls(event):
-            await coordinator.calls.stop()
+    async def stop_calls(event):
+        await coordinator.calls.stop()
 
-        entry.async_on_unload(
-            hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, stop_calls)
-        )
+    entry.async_on_unload(
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, stop_calls)
+    )
     entry.runtime_data = coordinator
     # Preserve old registry metadata while retiring the superseded button.
     registry = er.async_get(hass)
@@ -83,7 +84,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(client.clear_session)
     await hass.config_entries.async_forward_entry_setups(entry, platforms(entry))
     entry.async_on_unload(entry.add_update_listener(update_options))
-    if coordinator.calls:
+    if entry.options.get(CONF_ENABLE_CALLS, False):
         await coordinator.calls.start()
     return True
 
@@ -95,12 +96,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 def platforms(entry):
-    return PLATFORMS + (
-        [Platform.CAMERA, Platform.EVENT]
-        if entry.runtime_data.calls is not None
-        else []
-    )
+    return PLATFORMS + [Platform.CAMERA, Platform.EVENT]
 
 
 async def update_options(hass, entry):
-    await hass.config_entries.async_reload(entry.entry_id)
+    manager = entry.runtime_data.calls
+    if entry.options.get(CONF_ENABLE_CALLS, False):
+        await manager.start()
+    else:
+        await manager.stop()
