@@ -1,0 +1,49 @@
+{
+  "scope": "synthetic loopback-only lab; no vendor or HA access",
+  "image": "ghcr.io/tech7fox/asterisk-hass-addon:6.4.0",
+  "image_digest": "ghcr.io/tech7fox/asterisk-hass-addon@sha256:0a7bc9e15c43d087ae15072e01dfd32db78c2095fccd5f5ffa246b31046ad6ae",
+  "engine_version": "Asterisk 22.11.0 built by root @ buildkitsandbox on a x86_64 running Linux on 2026-10-21 03:22:56 UTC",
+  "direct_redirect": {
+    "front_requests": 1,
+    "backend_requests": 0,
+    "authenticated": false,
+    "registered_in_cli": false,
+    "request_records": []
+  },
+  "resolved_proxy": {
+    "front_requests": 0,
+    "backend_requests": 2,
+    "authenticated": true,
+    "registered_in_cli": true,
+    "request_records": [
+      {
+        "uri": "sip:cellgate.test:15061",
+        "identity": "<sip:synthetic-cellgate@cellgate.test>",
+        "expires": "60",
+        "authenticated": false
+      },
+      {
+        "uri": "sip:cellgate.test:15061",
+        "identity": "<sip:synthetic-cellgate@cellgate.test>",
+        "expires": "60",
+        "authenticated": true
+      }
+    ]
+  },
+  "media": {
+    "browser_registered": true,
+    "incoming_call_answered": true,
+    "video_decoded": [
+      160,
+      120
+    ],
+    "incoming_audio_decoded": true,
+    "microphone_return_decoded_pcmu": true,
+    "remote_bye_propagated": true,
+    "sip_call_survived_media_detach": true,
+    "return_tone_frequency_hz": 900.0,
+    "audio_transcoding": "PCMU <-> Opus",
+    "browser_audio": "Opus only",
+    "call_lifecycle_note": "Backend routing/media proof only; native HA viewer detach/reopen adapter not implemented."
+  }
+}
