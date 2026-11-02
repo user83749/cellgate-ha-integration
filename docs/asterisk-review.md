@@ -1,5 +1,7 @@
 # TECH7Fox Asterisk review for CellGate
 
+Historical evaluation preceding the 0.4.0 implementation. For the shipped architecture, see [current call/media details](call-media.md).
+
 Reviewed and evaluated November 2, 2026. Source inspection was followed by an isolated Linux/Docker lab using the referenced add-on image and synthetic credentials. No owner Home Assistant instance or CellGate service was accessed, and no physical gate command was sent. The production integration remains unchanged.
 
 ## Revisions and scope

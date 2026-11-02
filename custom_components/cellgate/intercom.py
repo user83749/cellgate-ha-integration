@@ -68,7 +68,8 @@ async def check_backend(client, url, token):
                 raise IntercomError("Not a compatible CellGate Intercom backend")
             data = await response.json()
             if (
-                data.get("product") != "cellgate-intercom"
+                not isinstance(data, dict)
+                or data.get("product") != "cellgate-intercom"
                 or data.get("api_version") != 1
             ):
                 raise IntercomError("Not a compatible CellGate Intercom backend")
