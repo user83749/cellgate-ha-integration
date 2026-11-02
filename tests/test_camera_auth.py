@@ -24,7 +24,9 @@ async def load_camera(hass, tmp_path):
             "custom_components.cellgate.api.CellGateClient.discover",
             AsyncMock(return_value=GATES),
         ),
-        patch("custom_components.cellgate.intercom.AsteriskCallManager.start", AsyncMock()),
+        patch(
+            "custom_components.cellgate.intercom.AsteriskCallManager.start", AsyncMock()
+        ),
     ):
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
@@ -120,3 +122,25 @@ async def test_ice_after_rejected_offer_or_closed_session_is_quiet(
         assert (await client.receive_json())["success"] is True
     assert "WebRTC session no longer exists" not in caplog.text
     assert "Unknown error" not in caplog.text
+
+
+async def test_mistaken_ha_backend_url_sends_no_invalid_token_or_trips_ban(
+    hass, hass_client_no_auth, tmp_path
+):
+    import pytest
+    from homeassistant.helpers.aiohttp_client import async_get_clientsession
+    from custom_components.cellgate.intercom import IntercomError, check_backend
+
+    entry, camera = await load_camera(hass, tmp_path)
+    app = hass.http.app
+    app[KEY_LOGIN_THRESHOLD] = 1
+    client = await hass_client_no_auth()
+    mistaken_url = str(client.make_url("/")).rstrip("/")
+    with pytest.raises(IntercomError):
+        await check_backend(
+            async_get_clientsession(hass),
+            mistaken_url,
+            "synthetic-backend-token-" + "x" * 32,
+        )
+    assert not app[KEY_BAN_MANAGER].ip_bans_lookup
+    assert not any(app[KEY_FAILED_LOGIN_ATTEMPTS].values())

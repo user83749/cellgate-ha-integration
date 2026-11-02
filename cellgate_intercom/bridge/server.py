@@ -472,7 +472,8 @@ class Bridge:
 def application(bridge):
     @web.middleware
     async def authenticate(request, handler):
-        if not hmac.compare_digest(
+        discovery = request.method == "GET" and request.path == "/v1/health"
+        if not discovery and not hmac.compare_digest(
             request.headers.get("Authorization", "").encode(),
             ("Bearer " + bridge.token).encode(),
         ):
@@ -494,7 +495,11 @@ def application(bridge):
 
     async def health(request):
         return web.json_response(
-            {"api_version": API_VERSION, "ready": bridge.ari_ready.is_set()}
+            {
+                "product": "cellgate-intercom",
+                "api_version": API_VERSION,
+                "ready": bridge.ari_ready.is_set(),
+            }
         )
 
     async def configure(request):
@@ -559,6 +564,7 @@ def application(bridge):
         return web.json_response({})
 
     app.router.add_get("/v1/health", health)
+    app.router.add_get("/v1/health/authenticated", health)
     app.router.add_put("/v1/accounts/{owner}", configure)
     app.router.add_delete("/v1/accounts/{owner}", disable)
     app.router.add_get("/v1/accounts/{owner}", state)

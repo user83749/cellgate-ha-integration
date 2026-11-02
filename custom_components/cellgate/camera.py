@@ -52,9 +52,7 @@ class CellGateCamera(Camera):
 
     @property
     def available(self):
-        return self.manager.call is not None and (
-            self.manager.registered or self.manager.call.answered
-        )
+        return self.manager.call is not None
 
     @property
     def extra_state_attributes(self):

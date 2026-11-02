@@ -57,8 +57,25 @@ async def check_backend(client, url, token):
             "Backend API token must contain 32–128 visible ASCII characters"
         )
     try:
+        # Identify the service before sending any Authorization header. A user
+        # accidentally entering an HA URL must not produce an invalid HA token.
         async with client.get(
             url + "/v1/health",
+            timeout=aiohttp.ClientTimeout(total=8),
+            allow_redirects=False,
+        ) as response:
+            if response.status != 200:
+                raise IntercomError("Not a compatible CellGate Intercom backend")
+            data = await response.json()
+            if (
+                data.get("product") != "cellgate-intercom"
+                or data.get("api_version") != 1
+            ):
+                raise IntercomError("Not a compatible CellGate Intercom backend")
+            if data.get("ready") is not True:
+                raise IntercomError("CellGate Intercom backend is not ready")
+        async with client.get(
+            url + "/v1/health/authenticated",
             headers={"Authorization": "Bearer " + token},
             timeout=aiohttp.ClientTimeout(total=8),
             allow_redirects=False,
@@ -67,9 +84,6 @@ async def check_backend(client, url, token):
                 raise IntercomAuthError("Backend API token rejected")
             if response.status != 200:
                 raise IntercomError("Not a compatible CellGate Intercom backend")
-            data = await response.json()
-            if data.get("api_version") != 1 or data.get("ready") is not True:
-                raise IntercomError("CellGate Intercom backend is not ready")
     except (aiohttp.ClientError, TimeoutError):
         raise IntercomError("Unable to connect to CellGate Intercom backend") from None
     return url

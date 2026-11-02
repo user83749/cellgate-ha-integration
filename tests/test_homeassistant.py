@@ -192,7 +192,9 @@ async def test_optional_persistent_camera_event_and_unload(hass):
     manager = entry.runtime_data.calls
     assert hass.states.get(camera_id).state == "unavailable"
     for sequence in (1, 2):
-        manager.registered = True
+        # An authenticated incoming call is available even before registration
+        # monitoring catches up with the SIP engine's current status.
+        manager.registered = sequence == 1
         manager.call = SimpleNamespace(
             answered=False, bridge=SimpleNamespace(can_talk=True)
         )
