@@ -96,6 +96,17 @@ async def evaluate():
 
             manager = AsteriskCallManager(client, account_provider, owner)
             await manager.set_options({"backend_url": url, "backend_token": token})
+            async with client.put(
+                url + "/v1/accounts/" + owner,
+                headers={"Authorization": "Bearer " + token},
+                json={
+                    "username": account.username,
+                    "password": account.password,
+                    "host": account.host,
+                },
+            ) as response:
+                report["configuration_status"] = response.status
+                report["configuration_response"] = await response.json()
             await manager.start()
             await wait_for(lambda: manager.registered, 30)
             report["registered"] = True
@@ -377,6 +388,31 @@ async def evaluate():
             )
             report["contact_specific_deregistration"] = True
         finally:
+            if manager:
+                report["final_manager_state"] = manager.state
+                report["final_manager_error"] = manager.last_error
+            report["front_requests"] = list(front.records)
+            report["provider_requests"] = list(provider.records)
+            for diagnostic in (
+                "core show channels",
+                "pjsip show registrations",
+                "ari show status",
+                "pjsip show endpoints",
+            ):
+                data = await command(
+                    "docker",
+                    "exec",
+                    name,
+                    "/usr/sbin/asterisk",
+                    "-C",
+                    "/data/runtime/asterisk.conf",
+                    "-rx",
+                    diagnostic,
+                    check=False,
+                )
+                (
+                    output / (diagnostic.replace(" ", "-") + "-before-stop.txt")
+                ).write_text(data)
             if manager:
                 await manager.stop()
             for task in tasks:

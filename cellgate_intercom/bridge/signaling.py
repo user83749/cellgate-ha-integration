@@ -196,6 +196,9 @@ class Viewer:
         self.ws = await self.client.ws_connect(
             self.config.ws_url, protocols=["sip"], max_msg_size=65535
         )
+        if self.closed:
+            await self.ws.close()
+            raise BackendError("The viewing session was closed")
         self.reader = asyncio.create_task(self.receive())
         auth = ""
         for attempt in range(2):

@@ -120,6 +120,10 @@ class AsteriskCallManager:
         self.options = dict(options)
 
     async def request(self, method, path, **kwargs):
+        if self.auth_blocked:
+            raise IntercomAuthError(
+                "Backend authentication is blocked until options are updated"
+            )
         try:
             async with self.client.request(
                 method,
@@ -273,6 +277,8 @@ class AsteriskCallManager:
                 ):
                     with suppress(IntercomError, TimeoutError):
                         await asyncio.wait_for(self.request("DELETE", self.path), 8)
+            for session in self.sessions.values():
+                session.ready.set()
             self.sessions.clear()
             self.configured = False
             self.call = None
@@ -298,6 +304,14 @@ class AsteriskCallManager:
                     json={"call_id": call.id, "sdp": sdp},
                 )
                 session.ready.set()
+                if (
+                    self.sessions.get(session_id) is not session
+                    or not self.call
+                    or self.call.id != call.id
+                ):
+                    raise IntercomError(
+                        "The viewing session was closed before it could start"
+                    )
                 reply = await self.request(
                     "POST", self.path + "/sessions/" + session.id, json={}
                 )
@@ -310,7 +324,10 @@ class AsteriskCallManager:
                 return reply["answer"]
             except BaseException:
                 session.ready.set()
-                await self.close_viewer(session_id)
+                if self.sessions.get(session_id) is session:
+                    self.sessions.pop(session_id, None)
+                with suppress(IntercomError):
+                    await self.request("DELETE", self.path + "/sessions/" + session.id)
                 raise
 
     async def candidate(self, session_id, value, mid=None, index=None):
