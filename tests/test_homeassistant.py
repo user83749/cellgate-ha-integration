@@ -161,12 +161,14 @@ async def test_cover_reports_open_unknown_and_open_only(hass):
     entry.runtime_data.async_set_updated_data(data)
     await hass.async_block_till_done()
     assert hass.states.get(entity_id).state == "open"
-    data = deepcopy(data)
-    data["42_7"]["state_label"] = "Unspecified"
-    data["42_7"]["last_state"] = "0"
-    entry.runtime_data.async_set_updated_data(data)
-    await hass.async_block_till_done()
-    assert hass.states.get(entity_id).state == "unknown"
+    # Labels that don't name a position fall back to the relay status.
+    for last_state, expected in (("0", "closed"), ("1", "open"), (None, "unknown")):
+        data = deepcopy(data)
+        data["42_7"]["state_label"] = "Relay status"
+        data["42_7"]["last_state"] = last_state
+        entry.runtime_data.async_set_updated_data(data)
+        await hass.async_block_till_done()
+        assert hass.states.get(entity_id).state == expected
 
 
 async def test_optional_persistent_camera_event_and_unload(hass):

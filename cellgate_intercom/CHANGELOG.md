@@ -1,3 +1,7 @@
+# 0.4.3
+
+- Gate: open/closed comes from CellGate's relay status (`lastState` 0 = closed, 1 = open). A configured label that names open or closed still takes precedence; other labels no longer turn the state into `unknown`.
+
 # 0.4.2
 
 - Gate: CellGate answers a queued open with `isSuccess: false` and result `Processing`; treat that as accepted instead of raising "CellGate rejected the mobile request".

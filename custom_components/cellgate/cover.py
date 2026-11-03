@@ -37,9 +37,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
 class CellGateCover(CellGateEntity, CoverEntity):
     _attr_device_class = CoverDeviceClass.GATE
     _attr_supported_features = CoverEntityFeature.OPEN
-    # State is the relay's reported label, not a position sensor. Without this
-    # HA greys out Open whenever the label reads "open".
-    _attr_assumed_state = True
 
     def __init__(self, coordinator, port_id):
         super().__init__(coordinator, port_id, "gate")
@@ -48,10 +45,17 @@ class CellGateCover(CellGateEntity, CoverEntity):
 
     @property
     def is_closed(self):
+        # The relay status is the gate state: 0 closed, 1 open. A label that
+        # names open/closed wins, since owners can configure inverted wiring.
         label = str(self.port.get("state_label") or "").strip().lower()
-        if label in {"closed", "gate closed", "door closed"}:
+        if "clos" in label:
             return True
-        if label in {"open", "gate open", "door open"}:
+        if "open" in label:
+            return False
+        state = str(self.port.get("last_state")).strip()
+        if state == "0":
+            return True
+        if state == "1":
             return False
         return None
 
