@@ -1,3 +1,10 @@
+# 0.4.4
+
+- Fix codec lookup failures silently stripping video: unknown codec metadata now leaves H.264/VP8 available for Asterisk negotiation. A confirmed audio-only offer still remains audio-only.
+- Expose viewer negotiation stage and safe provider/viewer audio/video packet counts on the HA camera. Keep the last call's counts after hangup so failures can be inspected afterward. Counts are sampled every five seconds while answered; unavailable counts are null, not fabricated zeros. These describe packets, not successful decoding.
+- Return specific safe media failure codes to HA, log the failing stage and local SIP rejection status, and keep raw SDP and credentials out of camera errors.
+- No gate behavior changes in this release. Real-device camera and talk still require a live incoming-call test.
+
 # 0.4.3
 
 - Gate: open/closed comes from CellGate's relay status (`lastState` 0 = closed, 1 = open). A configured label that names open or closed still takes precedence; other labels no longer turn the state into `unknown`.

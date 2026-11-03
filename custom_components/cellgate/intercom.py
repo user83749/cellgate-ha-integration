@@ -5,15 +5,17 @@ video or audio. No Home Assistant HTTP authentication endpoints are accessed.
 """
 
 from __future__ import annotations
+
 import asyncio
+import secrets
 from contextlib import suppress
 from dataclasses import dataclass, field
-import secrets
 from urllib.parse import urlsplit
+
 import aiohttp
 
-from .api import CellGateError, CellGateAuthError
-from .const import CONF_BACKEND_URL, CONF_BACKEND_TOKEN
+from .api import CellGateAuthError, CellGateError
+from .const import CONF_BACKEND_TOKEN, CONF_BACKEND_URL
 
 
 class IntercomError(Exception):
@@ -125,6 +127,8 @@ class AsteriskCallManager:
         self.token = None
         self.auth_blocked = False
         self.configured = False
+        self.media = {}
+        self.viewer_stage = "idle"
 
     def subscribe(self, listener):
         self.listeners.add(listener)
@@ -167,8 +171,27 @@ class AsteriskCallManager:
                         "Incompatible CellGate Intercom backend URL; update the integration options"
                     )
                 if response.status != 200:
+                    # Only recognized codes become user-visible text. Server bodies
+                    # may contain private descriptions and must never reach HA logs.
+                    messages = {
+                        "ice_missing": "No viewer ICE candidates reached CellGate Intercom",
+                        "call_control_failed": "Asterisk could not answer or bridge the intercom call",
+                        "viewer_sip_rejected": "Asterisk rejected the viewer media negotiation",
+                        "media_timeout": "Timed out negotiating the intercom viewer",
+                        "media_connection_failed": "Unable to connect the Asterisk viewer",
+                    }
+                    try:
+                        error = await response.json()
+                    except (ValueError, aiohttp.ClientError):
+                        error = {}
+                    code = error.get("error_code") if isinstance(error, dict) else None
+                    if not isinstance(code, str):
+                        code = None
                     raise IntercomError(
-                        "CellGate Intercom backend could not complete the request"
+                        messages.get(
+                            code,
+                            f"CellGate Intercom request failed (HTTP {response.status})",
+                        )
                     )
                 return await response.json()
         except (aiohttp.ClientError, TimeoutError):
@@ -212,6 +235,8 @@ class AsteriskCallManager:
         self.state = data.get("state", "connecting")
         self.can_talk = bool(data.get("can_talk"))
         self.last_error = data.get("last_error")
+        self.media = data.get("media") or {}
+        self.viewer_stage = data.get("viewer_stage", "idle")
         ring = (data.get("epoch"), data.get("ring_sequence"))
         if call and not call.get("answered") and ring != self.last_ring:
             self.ring_sequence += 1

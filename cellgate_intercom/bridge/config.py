@@ -1,16 +1,21 @@
 """Private Asterisk configuration; no shell interpolation or HA API access."""
 
 from __future__ import annotations
+
 import asyncio
 import ipaddress
-from pathlib import Path
 import re
 import secrets
 import socket
+from pathlib import Path
 
 
 class BackendError(Exception):
     """Safe, public error text only."""
+
+    def __init__(self, message, code="backend_error"):
+        super().__init__(message)
+        self.code = code
 
 
 # Addresses Asterisk must not rewrite to the public address.
@@ -143,7 +148,7 @@ async def resolve_next_hop(account):
                             match = re.search(
                                 r"^Contact:\s*<?sip:([0-9.]+):([0-9]{1,5})(?:[;>\s]|$)",
                                 text,
-                                re.M | re.I,
+                                re.MULTILINE | re.IGNORECASE,
                             )
                             if not match:
                                 raise BackendError("Unsupported SIP redirect")

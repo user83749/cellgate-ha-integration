@@ -69,3 +69,7 @@ In HA, configure the integration with the Linux host's reachable address and the
 The add-on log reports startup/configuration failures without credentials. The HA camera attributes expose `call_state` and a sanitized `last_error`, never SDP or SIP credentials. `configuration_required` means the new backend URL/token has not been entered. Authentication rejection stops retries until options are updated. Keep the backend token consistent between the add-on and integration.
 
 If the camera cannot find a common video codec/profile, the session fails instead of silently re-encoding. A native HA offer may trickle ICE candidates; the adapter collects them (up to five seconds) before submitting a complete SIP offer. This can affect connection setup time; no lower-latency claim has been measured.
+
+## Call-media diagnostics (0.4.4)
+
+Update the custom integration as well as this backend. The existing camera's attributes expose viewer stage, codec-lookup failure, and per-leg audio/video receive/transmit packet counts. Counts are sampled while answered and retained after hangup; null means unavailable. Camera errors and the app log identify ICE, SIP viewer negotiation, call control, or connection timeout failures. No SIP password, raw SDP, HA token, or unfiltered server error body is added to these attributes. These diagnostics do not initiate a call or trigger the gate.

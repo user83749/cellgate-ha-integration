@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+
 from cellgate_intercom.bridge.config import BackendError, config_value
 from cellgate_intercom.bridge.server import Bridge, complete_offer
 from custom_components.cellgate.intercom import (
@@ -279,3 +280,116 @@ def test_max_bundle_shared_candidates_require_identical_ice_credentials():
             [],
             {"h264"},
         )
+
+
+def test_unknown_codec_lookup_does_not_silently_remove_video():
+    result = complete_offer(SDP, [], None)
+    assert "m=video 9 UDP/TLS/RTP/SAVPF 96 99" in result
+    assert "H264/90000" in result and "VP8/90000" in result
+    assert "m=video 0" not in result
+
+
+async def test_failed_codec_lookup_keeps_call_and_video_negotiation():
+    bridge = make_bridge()
+
+    async def ari(method, path, **params):
+        if params.get("variable") == "PJSIP_MEDIA_OFFER(video)":
+            raise BackendError(
+                "Asterisk call control returned HTTP 500", "call_control_failed"
+            )
+        return {"value": "ulaw"}
+
+    bridge.ari.side_effect = ari
+    await bridge.event(
+        {"type": "StasisStart", "args": ["incoming"], "channel": {"id": "caller"}}
+    )
+    assert bridge.call["video"] is None
+    assert not bridge.call["answered"]
+    assert bridge.snapshot()["media"]["codec_lookup_failed"]
+    bridge.prepare("a" * 32, bridge.call["id"], SDP)
+    with patch("cellgate_intercom.bridge.server.Viewer") as viewer:
+        viewer.return_value.offer = AsyncMock(return_value="synthetic-answer")
+        assert await bridge.offer("a" * 32) == "synthetic-answer"
+        assert "m=video 0" not in viewer.return_value.offer.call_args.args[0]
+
+
+async def test_packet_diagnostics_distinguish_provider_and_viewer_and_survive_call_end():
+    bridge = make_bridge()
+    bridge.call = {"id": "call", "channel": "caller", "answered": True}
+    bridge.prepare("a" * 32, "call", SDP)
+    bridge.sessions["a" * 32].viewer = SimpleNamespace(
+        channel="viewer", close=AsyncMock()
+    )
+
+    async def ari(method, path, **params):
+        if params.get("variable"):
+            return {"value": "42" if "/caller/" in path else "0"}
+
+    bridge.ari.side_effect = ari
+    await bridge.sample_media()
+    packet = bridge.snapshot()["media"]["packets"]
+    assert packet["provider"]["video"]["rx_packets"] == 42
+    assert packet["viewer"]["audio"]["rx_packets"] == 0
+    assert len(bridge.ari.await_args_list) == 8
+    await bridge.end_call(hangup=False)
+    assert bridge.snapshot()["media"]["packets"] == packet
+
+
+async def test_offer_failure_publishes_safe_stage_and_cleans_viewer():
+    bridge = make_bridge()
+    bridge.call = {
+        "id": "call",
+        "channel": "caller",
+        "answered": False,
+        "video": {"h264"},
+    }
+    bridge.prepare("a" * 32, "call", SDP)
+    with patch("cellgate_intercom.bridge.server.Viewer") as viewer:
+        viewer.return_value.offer = AsyncMock(
+            side_effect=BackendError(
+                "Asterisk rejected the viewing session (SIP 488)", "viewer_sip_rejected"
+            )
+        )
+        viewer.return_value.close = AsyncMock()
+        viewer.return_value.channel = None
+        with pytest.raises(BackendError, match="SIP 488"):
+            await bridge.offer("a" * 32)
+        viewer.return_value.close.assert_awaited_once()
+    assert not bridge.sessions
+    assert bridge.call and not bridge.call["answered"]
+    assert bridge.last_error == "Intercom viewing failed (viewer_sip_rejected)"
+
+
+@pytest.mark.parametrize(
+    "code,expected",
+    [
+        ("ice_missing", "No viewer ICE"),
+        ("viewer_sip_rejected", "Asterisk rejected"),
+        ("unexpected-private-value", "HTTP 409"),
+    ],
+)
+async def test_ha_request_uses_safe_codes_without_exposing_remote_error_body(
+    code, expected
+):
+    class Response:
+        status = 409
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def json(self):
+            return {"error_code": code, "error": "synthetic-secret-password-and-sdp"}
+
+    manager = AsteriskCallManager(
+        SimpleNamespace(request=Mock(return_value=Response())),
+        AsyncMock(),
+        "synthetic-account",
+    )
+    manager.url = "http://backend:28190"
+    manager.token = "synthetic-" + "x" * 32
+    with pytest.raises(IntercomError, match=expected) as error:
+        await manager.request("POST", manager.path + "/sessions/test")
+    assert "synthetic-secret" not in str(error.value)
