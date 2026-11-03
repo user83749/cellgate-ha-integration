@@ -8,7 +8,8 @@
     "build": "scrypted-webpack",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
-    "scrypted-deploy": "scrypted-deploy"
+    "scrypted-deploy": "scrypted-deploy",
+    "test:bundle": "node --test tests/bundle.test.cjs"
   },
   "scrypted": {
     "name": "CellGate Intercom",
@@ -19,7 +20,8 @@
     ],
     "pluginDependencies": [
       "@scrypted/webrtc"
-    ]
+    ],
+    "rollup": true
   },
   "dependencies": {
     "@scrypted/sdk": "0.5.59",

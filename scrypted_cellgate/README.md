@@ -60,6 +60,9 @@ Disable background prebuffering/continuous recording for this call-only device. 
 npm run typecheck
 npm test
 npm run build
+npm run test:bundle
 ```
+
+The SDK build uses its supported Rollup mode, and a separate bundle-startup test checks the compiled plugin against SDK runtime globals.
 
 Tests cover service identification before credentials, bad-auth retry blocking, early ICE, call-end/reservation races, failed-offer cleanup, viewer close/reopen, and ring deduplication. The repository's Asterisk workflow can run the actual adapter against the packaged backend with synthetic SIP/RTP/WebRTC traffic. That lab uses an SDK-shaped signaling peer with aiortc and does not prove installed Scrypted WebRTC/HomeKit integration or a real CellGate call.
