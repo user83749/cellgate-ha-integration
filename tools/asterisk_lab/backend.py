@@ -3,6 +3,8 @@
 from __future__ import annotations
 import array
 import asyncio
+import hashlib
+import os
 from fractions import Fraction
 import json
 import math
@@ -37,7 +39,12 @@ async def evaluate():
     output = ROOT / "asterisk-backend-results"
     output.mkdir(exist_ok=True)
     token = secrets.token_hex(32)
-    owner = "synthetic-account"
+    scrypted_mode = os.environ.get("CELLGATE_LAB_ADAPTER") == "scrypted"
+    owner = (
+        hashlib.sha256(b"synthetic@example.test").hexdigest()[:24]
+        if scrypted_mode
+        else "synthetic-account"
+    )
     url = "http://127.0.0.1:28190"
     options = {
         "api_token": token,
@@ -60,6 +67,8 @@ async def evaluate():
     browsers = []
     tasks = []
     ports = []
+    relay = None
+    relay_url = None
     async with aiohttp.ClientSession() as client:
         try:
             await command(
@@ -115,6 +124,23 @@ async def evaluate():
             await manager.start()
             await wait_for(lambda: manager.registered, 30)
             report["registered"] = True
+            if scrypted_mode:
+                plugin = ROOT / "scrypted_cellgate"
+                relay = await asyncio.create_subprocess_exec(
+                    "node",
+                    "--import",
+                    "tsx",
+                    "tools/lab-relay.ts",
+                    str(output / "options.json"),
+                    cwd=plugin,
+                    stdout=asyncio.subprocess.PIPE,
+                )
+                line = await asyncio.wait_for(relay.stdout.readline(), 20)
+                relay_url = json.loads(line)["url"]
+                report["adapter"] = (
+                    "scrypted_cellgate CallSignaling + Backend (SDK-shaped signaling peer)"
+                )
+
             audio, video = Port(), Port()
             ports = [audio, video]
             for port in ports:
@@ -230,13 +256,32 @@ async def evaluate():
                         elif line != "a=end-of-candidates":
                             lines.append(line)
                     local = "\r\n".join(lines) + "\r\n"
-                offer_task = asyncio.create_task(manager.offer(local, viewer_id))
-                if trickle:
-                    await wait_for(lambda: viewer_id in manager.sessions)
-                    for candidate, mid, index in candidates:
-                        await manager.candidate(viewer_id, candidate, mid, index)
-                    await manager.candidate(viewer_id, "")
-                answer = await asyncio.wait_for(offer_task, 35)
+                if scrypted_mode:
+                    async with client.post(
+                        relay_url + "/offer",
+                        json={
+                            "sdp": local,
+                            "candidates": [
+                                {
+                                    "candidate": candidate,
+                                    "sdpMid": mid,
+                                    "sdpMLineIndex": index,
+                                }
+                                for candidate, mid, index in candidates
+                            ]
+                            + ([{"candidate": ""}] if trickle else []),
+                        },
+                    ) as response:
+                        assert response.status == 200, "Scrypted adapter offer failed"
+                        answer = (await response.json())["answer"]
+                else:
+                    offer_task = asyncio.create_task(manager.offer(local, viewer_id))
+                    if trickle:
+                        await wait_for(lambda: viewer_id in manager.sessions)
+                        for candidate, mid, index in candidates:
+                            await manager.candidate(viewer_id, candidate, mid, index)
+                        await manager.candidate(viewer_id, "")
+                    answer = await asyncio.wait_for(offer_task, 35)
                 (output / (viewer_id + "-answer.sdp")).write_text(answer)
                 await browser.setRemoteDescription(
                     RTCSessionDescription(answer, "answer")
@@ -379,7 +424,9 @@ async def evaluate():
                         heard = 750 < frequency < 1050
             report.update(
                 {
-                    "native_ha_manager_offer_and_trickle": True,
+                    "scrypted_adapter_offer_and_trickle"
+                    if scrypted_mode
+                    else "native_ha_manager_offer_and_trickle": True,
                     "h264_video_decoded": True,
                     "audio_decoded": True,
                     "microphone_900hz_return_pcmu": heard,
@@ -389,7 +436,11 @@ async def evaluate():
                 "Video payload changed instead of being forwarded"
             )
             report["encoded_h264_payloads_preserved"] = True
-            await manager.close_viewer("viewer-one")
+            if scrypted_mode:
+                async with client.post(relay_url + "/close", json={}) as response:
+                    assert response.status == 200
+            else:
+                await manager.close_viewer("viewer-one")
             await browser.close()
             await asyncio.sleep(1)
             assert (
@@ -407,6 +458,12 @@ async def evaluate():
             request("BYE")
             await response_for(200, "BYE")
             await wait_for(lambda: manager.call is None, 10)
+            async with client.get(
+                url + "/v1/accounts/" + owner,
+                headers={"Authorization": "Bearer " + token},
+            ) as response:
+                call_state = await response.json()
+            assert call_state["call"] is None and call_state["viewer_stage"] == "idle"
             report["remote_bye_clears_call_and_viewers"] = not manager.sessions
             # Cancellation before opening the camera must not answer the gate.
             call_id = secrets.token_hex(12)
@@ -430,6 +487,13 @@ async def evaluate():
             )
             report["contact_specific_deregistration"] = True
         finally:
+            if relay:
+                relay.terminate()
+                try:
+                    await asyncio.wait_for(relay.wait(), 8)
+                except TimeoutError:
+                    relay.kill()
+                    await relay.wait()
             if manager:
                 report["final_manager_state"] = manager.state
                 report["final_manager_error"] = manager.last_error

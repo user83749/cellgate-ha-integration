@@ -1,0 +1,34 @@
+name: Validate Scrypted plugin
+on:
+  push:
+    paths: ['scrypted_cellgate/**', '.github/workflows/scrypted-plugin.yaml']
+  pull_request:
+    paths: ['scrypted_cellgate/**', '.github/workflows/scrypted-plugin.yaml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  plugin:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: scrypted_cellgate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: scrypted_cellgate/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm run test:bundle
+      - run: npm pack --ignore-scripts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cellgate-scrypted-plugin
+          path: |
+            scrypted_cellgate/out/plugin.zip
+            scrypted_cellgate/*.tgz
