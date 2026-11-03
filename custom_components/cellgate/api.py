@@ -418,4 +418,10 @@ class CellGateClient:
                 raise CellGateCommandUncertain(
                     "Command outcome is unknown. Check the gate before sending another command."
                 ) from err
+            data = reply.get("data")
+            result = data.get("result") if isinstance(data, dict) else None
+            # The cloud queues the relay pulse for the cellular gate and answers
+            # isSuccess=false with result "Processing"; that is an accepted command.
+            if isinstance(result, str) and result.strip().casefold() == "processing":
+                return
             self._success(reply)

@@ -1,3 +1,8 @@
+# 0.4.2
+
+- Gate: CellGate answers a queued open with `isSuccess: false` and result `Processing`; treat that as accepted instead of raising "CellGate rejected the mobile request".
+- Gate: show `opening` for 15 seconds after Open and ignore repeat Open presses in that window, so a double tap (HomeKit or the dashboard) cannot send a second relay pulse.
+
 # 0.4.1
 
 - Advertise the public address (STUN, or `external_address`) in SIP and SDP, keep RTP flowing with keepalives and enable ICE toward CellGate. Previously the private LAN address was advertised, so intercom audio/video could not reach the backend.

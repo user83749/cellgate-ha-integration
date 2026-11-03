@@ -362,6 +362,15 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             await client.command(port())
         self.assertEqual(len(session.calls), 2)
 
+    async def test_processing_reply_is_accepted(self):
+        session = Session(
+            login(),
+            Response(data={"isSuccess": False, "data": {"result": "Processing"}}),
+        )
+        client = api.CellGateClient(session, "synthetic", "synthetic")
+        await client.command(port())
+        self.assertEqual(len(session.calls), 2)
+
     async def test_invalid_ack_is_uncertain(self):
         session = Session(login(), Response(data=[]))
         client = api.CellGateClient(session, "synthetic", "synthetic")

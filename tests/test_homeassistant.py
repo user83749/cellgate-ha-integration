@@ -62,6 +62,11 @@ async def test_entities_trigger_and_unload(hass):
         await hass.services.async_call(
             "cover", "open_cover", {"entity_id": covers[0]}, blocking=True
         )
+        assert hass.states.get(covers[0]).state == "opening"
+        # A duplicate tap while the pulse is in flight must not send a second one.
+        await hass.services.async_call(
+            "cover", "open_cover", {"entity_id": covers[0]}, blocking=True
+        )
         command.assert_awaited_once_with(GATES["42_7"])
     client._token = "synthetic-cached-token"
     assert await hass.config_entries.async_unload(entry.entry_id)

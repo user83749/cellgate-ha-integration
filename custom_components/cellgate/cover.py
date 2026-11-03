@@ -5,10 +5,14 @@ from homeassistant.components.cover import (
     CoverEntityFeature,
     CoverDeviceClass,
 )
+from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.event import async_call_later
 
 from .api import CellGateAuthError, CellGateError
 from .entity import CellGateEntity
+
+OPENING_SECONDS = 15
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
@@ -60,14 +64,32 @@ class CellGateCover(CellGateEntity, CoverEntity):
         }
 
     async def async_open_cover(self, **kwargs):
+        # A second momentary pulse can stop or reverse the gate; HomeKit and the
+        # frontend can send Open twice for one tap.
+        if self._attr_is_opening:
+            return
+        self._attr_is_opening = True
+        self.async_write_ha_state()
         try:
             await self.coordinator.client.command(self.port)
         except CellGateAuthError as err:
+            self._finish_opening()
             # Refresh the session for the next deliberate press; never replay this command.
             await self.coordinator.async_request_refresh()
             raise HomeAssistantError(
                 "CellGate rejected the command. Check account permissions and sign-in."
             ) from err
         except CellGateError as err:
+            self._finish_opening()
             raise HomeAssistantError(str(err)) from err
-        await self.coordinator.async_request_refresh()
+        # Show "opening" while the cloud delivers the pulse, then re-read state.
+        self.async_on_remove(
+            async_call_later(self.hass, OPENING_SECONDS, self._finish_opening)
+        )
+
+    @callback
+    def _finish_opening(self, _now=None):
+        if self._attr_is_opening:
+            self._attr_is_opening = False
+            self.async_write_ha_state()
+            self.hass.async_create_task(self.coordinator.async_request_refresh())
