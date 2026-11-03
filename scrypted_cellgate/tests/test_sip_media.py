@@ -200,3 +200,15 @@ def test_srtp_return_path_encrypts_with_our_negotiated_key():
     assert encrypted != packet
     assert receiver.unprotect(encrypted) == packet
     channel.track.stop()
+
+
+def test_untrusted_invite_diagnostic_is_redacted_and_rate_limited():
+    from cellgate_plugin.sip import SipReceiver
+    events = []
+    receiver = SipReceiver(None, diagnostic=events.append)
+    packet = b'INVITE sip:private-user@private-host SIP/2.0\r\nAuthorization: private-secret\r\n'
+    for _ in range(100):
+        receiver.datagram_received(packet, ('203.0.113.9', 5060))
+    assert events == ['SIP INVITE ignored: source outside registered server addresses']
+    assert receiver.call is None and not receiver.tasks
+    assert all('private-' not in event for event in events)
