@@ -1,5 +1,7 @@
 """Native Home Assistant WebRTC camera for an incoming intercom call."""
 
+import logging
+
 from homeassistant.components.camera import Camera, CameraEntityFeature
 from homeassistant.components.camera.webrtc import WebRTCAnswer, WebRTCError
 from homeassistant.core import callback
@@ -14,6 +16,8 @@ except ImportError:
 
 from .const import DOMAIN
 from .intercom import IntercomError
+
+LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
@@ -56,7 +60,12 @@ class CellGateCamera(Camera):
 
     @property
     def extra_state_attributes(self):
-        return {"call_state": self.manager.state, "last_error": self.manager.last_error}
+        return {
+            "call_state": self.manager.state,
+            "last_error": self.manager.last_error,
+            "viewer_stage": self.manager.viewer_stage,
+            "media": self.manager.media,
+        }
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
@@ -82,8 +91,10 @@ class CellGateCamera(Camera):
             answer = await self.manager.offer(offer_sdp, session_id)
             send_message(WebRTCAnswer(answer))
         except IntercomError as err:
+            LOGGER.warning("Intercom camera connection failed: %s", err)
             send_message(WebRTCError("cellgate_call_unavailable", str(err)))
-        except Exception:
+        except Exception as err:  # noqa: BLE001 - never expose SDP/credentials
+            LOGGER.warning("Intercom camera connection failed (%s)", type(err).__name__)
             # Never expose remote descriptions or backend credentials.
             send_message(
                 WebRTCError(
@@ -102,7 +113,7 @@ class CellGateCamera(Camera):
             )
         except IntercomError as err:
             raise HomeAssistantError(str(err)) from None
-        except Exception:
+        except Exception:  # noqa: BLE001 - sanitize frontend errors
             raise HomeAssistantError(
                 "Unable to process the intercom connection candidate"
             ) from None

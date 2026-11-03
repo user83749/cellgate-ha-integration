@@ -1,14 +1,17 @@
 """Local SIP WebSocket signaling only; Asterisk owns provider SIP and all media."""
 
 from __future__ import annotations
+
 import asyncio
-from contextlib import suppress
-from dataclasses import dataclass
 import re
 import secrets
+from contextlib import suppress
+from dataclasses import dataclass
+
 import aiohttp
-from .config import BackendError
+
 from .auth import challenge_fields, digest
+from .config import BackendError
 
 SipError = BackendError
 
@@ -240,7 +243,10 @@ class Viewer:
                 self.to = "<sip:view@127.0.0.1>"
                 self.branch = "z9hG4bK" + secrets.token_hex(12)
                 continue
-            raise BackendError("Asterisk rejected the viewing session")
+            raise BackendError(
+                f"Asterisk rejected the viewing session (SIP {reply.status})",
+                "viewer_sip_rejected",
+            )
         raise BackendError("Unable to authenticate the local viewer")
 
     async def close(self):

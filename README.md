@@ -1,6 +1,6 @@
 # CellGate for Home Assistant
 
-Unofficial Home Assistant custom integration using CellGate's **mobile API**. Version **0.4.0** moves experimental intercom calls to a dedicated Asterisk backend. HA keeps the gate cover, one persistent native camera for video/audio/talk, and the incoming-call event.
+Unofficial Home Assistant custom integration using CellGate's **mobile API**. Version **0.4.4** fixes a video-negotiation regression and adds call-media diagnostics to the dedicated Asterisk backend. HA keeps the gate cover, one persistent native camera for video/audio/talk, and the incoming-call event.
 
 ## Gate
 
@@ -33,6 +33,16 @@ HA Container users can run the same [companion Docker service](cellgate_intercom
 The old in-process SIP receiver is replaced. Update the integration and install/configure the companion service before expecting intercom calls. Existing enabled-call settings without a backend produce `configuration_required`; the integration does not silently start the old receiver. The gate continues to work.
 
 The existing camera and event unique IDs are preserved. Options changes start/stop or reconnect the manager in place, preserving the camera object and tokens. The camera advertises no snapshot URL. The old receiver is archived under `tools/legacy_receiver` for historical regression tests and is excluded from the installable HA component. HA no longer installs aiortc/PyAV for this integration.
+
+## Updating to 0.4.4
+
+Update **both** the CellGate HACS integration and the CellGate Intercom app/backend to 0.4.4, restart the backend, then restart HA. No token or address changes are required for this update. The gate behavior is unchanged.
+
+During an incoming call, open the existing camera directly in HA. The camera's state attributes now include `viewer_stage` and `media`. Negotiation stages are `collecting_ice`, `signaling`, and `answered`; answered is not proof that media decoded. `media.packets` distinguishes provider and viewer, audio and video, with `rx_packets` and `tx_packets` from Asterisk's perspective. For example, provider video received with zero viewer video sent points to forwarding/negotiation; viewer microphone packets received without provider audio sent points to the audio-return leg. Positive counters establish packet flow, not picture or sound quality. Missing counters are `null`. Counts update every five seconds during an answered call and the last sample remains available after hangup.
+
+For microphone return in the standard HA camera UI, use Core 2026.11+, enable **Two-way audio** under **Settings → System → Labs**, and open HA over HTTPS with microphone permission. Core 2026.10 does not have that standard talk control. [HA's two-way-audio requirements](https://contributors.home-assistant.io/blog/2026/10/24/camera-two-way-audio/).
+
+The camera implements native HA WebRTC. HA's HomeKit Bridge expects a separate FFmpeg-compatible stream source, which this backend does not yet provide. HomeKit video/talk is therefore not implemented by this release; test the native HA camera first.
 
 ## Intercom behavior — experimental
 

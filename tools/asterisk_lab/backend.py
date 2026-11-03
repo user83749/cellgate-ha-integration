@@ -341,6 +341,25 @@ async def evaluate():
                 assert (vf.width, vf.height) == (160, 120) and af.samples > 0
 
             await frames(tracks)
+            await wait_for(
+                lambda: (
+                    manager.media.get("packets", {})
+                    .get("provider", {})
+                    .get("video", {})
+                    .get("rx_packets", 0)
+                ),
+                20,
+            )
+            await wait_for(
+                lambda: (
+                    manager.media.get("packets", {})
+                    .get("viewer", {})
+                    .get("audio", {})
+                    .get("rx_packets", 0)
+                ),
+                20,
+            )
+            report["packet_diagnostics"] = manager.media
             decoder = get_decoder(ac)
             heard = False
             async with asyncio.timeout(15):

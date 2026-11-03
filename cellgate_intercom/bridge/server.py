@@ -1,16 +1,18 @@
 """Authenticated HA signaling API and ARI call lifecycle; no media processing."""
 
 from __future__ import annotations
+
 import asyncio
-from contextlib import suppress
-from dataclasses import dataclass, field
 import hmac
 import logging
 import re
 import secrets
+from contextlib import suppress
+from dataclasses import dataclass, field
 
 import aiohttp
 from aiohttp import web
+
 from .config import (
     BackendError,
     config_value,
@@ -32,6 +34,7 @@ class Offer:
     candidates: list = field(default_factory=list)
     complete: asyncio.Event = field(default_factory=asyncio.Event)
     viewer: Viewer | None = None
+    stage: str = "reserved"
 
 
 def complete_offer(sdp, candidates, codecs):
@@ -41,7 +44,7 @@ def complete_offer(sdp, candidates, codecs):
     sections = sdp.replace("\r\n", "\n").strip().split("\nm=")
     prepared = []
     mids = {}
-    bundle = re.search(r"^a=group:BUNDLE (.+)$", sections[0], re.M)
+    bundle = re.search(r"^a=group:BUNDLE (.+)$", sections[0], re.MULTILINE)
     bundled_mids = set(bundle[1].split()) if bundle else set()
     for index, section in enumerate(sections[1:]):
         lines = ("m=" + section).splitlines()
@@ -79,6 +82,10 @@ def complete_offer(sdp, candidates, codecs):
             for prefix in ("a=ice-ufrag:", "a=ice-pwd:")
         )
 
+    # Missing metadata is not evidence that the provider offered no video.
+    # Asterisk still negotiates the actual provider/browser codec intersection.
+    if codecs is None:
+        codecs = {"h264", "vp8"}
     output = [sections[0]]
     rejected = set()
     for mid, lines in prepared:
@@ -128,7 +135,9 @@ def complete_offer(sdp, candidates, codecs):
             not any(line.startswith("a=candidate:") for line in lines)
             and fields[1] != "0"
         ):
-            raise BackendError("No ICE candidates received for the viewer")
+            raise BackendError(
+                "No ICE candidates received for the viewer", "ice_missing"
+            )
         if "a=end-of-candidates" not in lines:
             lines.append("a=end-of-candidates")
         output.append("\n".join(lines))
@@ -163,6 +172,8 @@ class Bridge:
         self.stopped = False
         self.disabling = False
         self.next_probe = 0
+        self.media = {}
+        self.last_media = {}
 
     def snapshot(self):
         return {
@@ -185,6 +196,10 @@ class Bridge:
             "can_talk": bool(self.call and self.call.get("audio")),
             "ring_sequence": self.ring_sequence,
             "last_error": self.last_error,
+            "media": self.media if self.call else self.last_media,
+            "viewer_stage": next(
+                (offer.stage for offer in self.sessions.values()), "idle"
+            ),
         }
 
     async def publish(self):
@@ -206,7 +221,10 @@ class Bridge:
             if response.status == 404 and method == "DELETE":
                 return None
             if response.status >= 300:
-                raise BackendError("Asterisk call control failed")
+                raise BackendError(
+                    f"Asterisk call control returned HTTP {response.status}",
+                    "call_control_failed",
+                )
             return (
                 await response.json()
                 if response.content_type == "application/json"
@@ -236,7 +254,9 @@ class Bridge:
                             try:
                                 await self.event(message.json())
                             except Exception:  # keep receiving future calls
-                                LOGGER.exception("Unable to handle an Asterisk call event")
+                                LOGGER.exception(
+                                    "Unable to handle an Asterisk call event"
+                                )
                                 self.last_error = (
                                     "Unable to handle an Asterisk call event"
                                 )
@@ -266,13 +286,17 @@ class Bridge:
             except (BackendError, OSError, TimeoutError):
                 self.registered = False
                 await self.publish()
+            if self.call and self.call["answered"]:
+                await self.sample_media()
             now = asyncio.get_running_loop().time()
             try:
                 if now >= next_nat and not self.call:
                     next_nat = now + 600
                     # A changed public IP would silently break incoming media.
                     if await asyncio.to_thread(self.config.nat):
-                        LOGGER.info("Public address changed; updating SIP/media advertisement")
+                        LOGGER.info(
+                            "Public address changed; updating SIP/media advertisement"
+                        )
                         await self.config.cli("module reload res_pjsip.so")
                 if (
                     self.owner
@@ -292,9 +316,56 @@ class Bridge:
                                 await self.config.cli(
                                     "pjsip send register cellgate-registration"
                                 )
-            except Exception:
+            except (BackendError, OSError, TimeoutError):
                 LOGGER.warning("SIP registration recovery attempt failed")
             await asyncio.sleep(5)
+
+    async def sample_media(self):
+        """Read packet counts only; never expose remote SDP, addresses or credentials."""
+        call = self.call
+        if not call:
+            return
+        legs = {"provider": call["channel"]}
+        for offer in self.sessions.values():
+            if offer.viewer and offer.viewer.channel:
+                legs["viewer"] = offer.viewer.channel
+                break
+        counts = {}
+
+        async def read(leg, channel, media, direction):
+            try:
+                value = await self.ari(
+                    "GET",
+                    f"/channels/{channel}/variable",
+                    variable=f"CHANNEL(rtcp,{direction}count,{media})",
+                )
+                raw = str((value or {}).get("value", ""))
+                return (
+                    leg,
+                    media,
+                    direction,
+                    int(raw) if raw.isascii() and raw.isdigit() else None,
+                )
+            except (BackendError, aiohttp.ClientError, TimeoutError):
+                return leg, media, direction, None
+
+        values = await asyncio.gather(
+            *(
+                read(leg, channel, media, direction)
+                for leg, channel in legs.items()
+                for media in ("audio", "video")
+                for direction in ("rx", "tx")
+            )
+        )
+        if self.call is not call:
+            return
+        for leg, media, direction, value in values:
+            counts.setdefault(leg, {}).setdefault(media, {})[direction + "_packets"] = (
+                value
+            )
+        self.media = {**self.media, "packets": counts}
+        self.last_media = self.media
+        await self.publish()
 
     async def apply(self, account, peer):
         addresses = await host_addresses(account)
@@ -323,21 +394,38 @@ class Bridge:
                             f"/channels/{channel_id}/variable",
                             variable=f"PJSIP_MEDIA_OFFER({kind})",
                         )
-                        offered[kind] = str((reply or {}).get("value") or "").lower()
+                        value = (reply or {}).get("value")
+                        offered[kind] = (
+                            str(value).lower() if value is not None else None
+                        )
                     except (BackendError, aiohttp.ClientError, TimeoutError):
-                        offered[kind] = ""
+                        offered[kind] = None
+                        LOGGER.warning(
+                            "Incoming %s codec lookup failed; leaving negotiation to Asterisk",
+                            kind,
+                        )
                 LOGGER.info(
                     "Incoming intercom call; audio [%s], video [%s]",
-                    offered["audio"] or "none",
-                    offered["video"] or "none",
+                    offered["audio"] if offered["audio"] is not None else "unknown",
+                    offered["video"] if offered["video"] is not None else "unknown",
                 )
                 self.call = {
                     "id": secrets.token_hex(16),
                     "channel": channel_id,
                     "answered": False,
-                    "video": set(re.findall(r"\b(?:h264|vp8)\b", offered["video"])),
+                    "video": set(re.findall(r"\b(?:h264|vp8)\b", offered["video"]))
+                    if offered["video"] is not None
+                    else None,
                     "audio": True,
                 }
+                self.media = {
+                    "provider_video_codecs": sorted(self.call["video"])
+                    if self.call["video"] is not None
+                    else None,
+                    "codec_lookup_failed": any(v is None for v in offered.values()),
+                    "packets": {},
+                }
+                self.last_media = self.media
                 self.ring_sequence += 1
                 self.last_error = None
                 await self.ari("POST", f"/channels/{channel_id}/ring")
@@ -373,6 +461,8 @@ class Bridge:
                 await self.ari(
                     "POST", f"/bridges/{self.bridge_id}/addChannel", channel=channel_id
                 )
+                offer.stage = "answered"
+                LOGGER.info("Intercom viewer answered and joined the provider call")
                 await self.publish()
                 return
             await self.ari("DELETE", f"/channels/{channel_id}")
@@ -419,6 +509,7 @@ class Bridge:
 
     async def end_call(self, hangup=True):
         call = self.call
+        self.last_media = self.media
         self.call = None
         for sid in list(self.sessions):
             await self.detach(sid)
@@ -476,6 +567,8 @@ class Bridge:
             call_id = offer.call_id
             sdp = offer.sdp
             try:
+                offer.stage = "collecting_ice"
+                await self.publish()
                 # Non-trickle SIP: collect the native HA viewer's trickled ICE
                 # before submitting its SDP, without creating a second media leg.
                 if "a=end-of-candidates" in sdp:
@@ -487,11 +580,37 @@ class Bridge:
                 if self.call is not call or self.sessions.get(sid) is not offer:
                     raise BackendError("The intercom call ended before viewing began")
                 sdp = complete_offer(sdp, offer.candidates, call["video"])
+                offer.stage = "signaling"
+                await self.publish()
                 offer.viewer = Viewer(self.client, self.config, call_id, sid)
                 answer = await offer.viewer.offer(sdp)
                 if self.call is not call:
                     raise BackendError("The intercom call ended before viewing began")
                 return answer
+            except (BackendError, aiohttp.ClientError, TimeoutError) as err:
+                code = (
+                    err.code
+                    if isinstance(err, BackendError)
+                    else "media_timeout"
+                    if isinstance(err, TimeoutError)
+                    else "media_connection_failed"
+                )
+                self.last_error = f"Intercom viewing failed ({code})"
+                LOGGER.warning(
+                    "Intercom viewing failed at %s (%s): %s",
+                    offer.stage,
+                    code,
+                    str(err)
+                    if isinstance(err, BackendError)
+                    else "connection unavailable",
+                )
+                await self.detach(sid)
+                await self.publish()
+                if isinstance(err, BackendError):
+                    raise
+                raise BackendError(
+                    "Unable to establish the Asterisk viewer", code
+                ) from None
             except BaseException:
                 await self.detach(sid)
                 raise
@@ -522,7 +641,9 @@ def application(bridge):
         try:
             return await handler(request)
         except BackendError as err:
-            return web.json_response({"error": str(err)}, status=409)
+            return web.json_response(
+                {"error": str(err), "error_code": err.code}, status=409
+            )
         except (aiohttp.ClientError, TimeoutError):
             return web.json_response(
                 {"error": "Asterisk backend unavailable"}, status=503

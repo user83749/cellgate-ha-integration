@@ -4,10 +4,12 @@ import asyncio
 import json
 import logging
 import os
-from pathlib import Path
 import re
 import signal
+from pathlib import Path
+
 from aiohttp import web
+
 from .config import BackendError, Configuration
 from .server import Bridge, application
 
