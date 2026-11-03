@@ -28,6 +28,8 @@ async def provider(monkeypatch):
         getDeviceState=lambda n: states.setdefault(n, SimpleNamespace()),
     )
     monkeypatch.setattr(sdk, 'deviceManager', manager)
+    monkeypatch.setattr(CellGateProvider, "print", lambda *args: None)
+    monkeypatch.setattr(CellGateCamera, "print", lambda *args: None)
     result = CellGateProvider()
     await result.ready
     yield result
@@ -114,10 +116,19 @@ async def test_scrypted_signaling_talk_and_viewer_detach_do_not_hang_up(provider
 
 
 async def test_signaling_failure_releases_viewer(provider):
-    provider.manager = SimpleNamespace(call=object(), sessions={}, close_viewer=AsyncMock())
+    provider.manager = SimpleNamespace(call=SimpleNamespace(answered=False), sessions={}, close_viewer=AsyncMock())
     session = SimpleNamespace(getOptions=AsyncMock(return_value={'requiresOffer': True}))
     with pytest.raises(SipError, match='WebRTC extension'):
         await provider.camera.startRTCSignalingSession(session)
     assert provider.camera.active is None
     provider.manager.close_viewer.assert_awaited_once()
     provider.manager = None
+
+
+async def test_idle_camera_request_logs_without_answering(provider, monkeypatch):
+    events = []
+    monkeypatch.setattr(provider, 'diagnostic', events.append)
+    with pytest.raises(SipError, match='No incoming'):
+        await provider.camera.startRTCSignalingSession(None)
+    assert events == ['Camera requested without a ringing/active SIP call; no SIP answer sent']
+    assert provider.camera.active is None

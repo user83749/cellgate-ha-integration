@@ -84,9 +84,11 @@ class CellGateCamera(ScryptedDeviceBase):
     async def startRTCSignalingSession(self, session):
         manager = self.provider.manager
         if not manager or not manager.call:
+            self.provider.diagnostic("Camera requested without a ringing/active SIP call; no SIP answer sent")
             raise SipError('No incoming CellGate call is available')
         if self.active:
             raise SipError('This CellGate call already has a viewer')
+        self.provider.diagnostic(f"Camera requested with SIP call available; answered={manager.call.answered}")
         control = ViewerControl(self, manager, manager.call)
         self.active = control
         setup = {'type': 'offer', 'audio': {'direction': 'sendrecv'}, 'video': {'direction': 'recvonly'}}
@@ -132,6 +134,13 @@ class CellGateProvider(ScryptedDeviceBase):
         for key in ('backend_url', 'api_token', 'account_email'):
             self.storage.removeItem(key)
         self.ready = self.spawn(self.initialize())
+
+    def diagnostic(self, event):
+        # Only fixed messages and locally generated counters/codecs. Never pass
+        # raw SIP/SDP, credentials, caller identifiers or library exceptions.
+        self.print(event)
+        if self.camera:
+            self.camera.print(event)
 
     def spawn(self, coroutine):
         task = asyncio.create_task(coroutine)
@@ -219,7 +228,7 @@ class CellGateProvider(ScryptedDeviceBase):
                 return
             self.http = aiohttp.ClientSession()
             self.mobile = MobileClient(self.http, username, password)
-            self.manager = CallManager(self.mobile.get_sip_account, stun_server=('stun.l.google.com', 19302))
+            self.manager = CallManager(self.mobile.get_sip_account, stun_server=('stun.l.google.com', 19302), diagnostic=self.diagnostic)
             self.manager.subscribe(self.changed)
             await self.manager.start()
 

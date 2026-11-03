@@ -58,3 +58,13 @@ npm run build
 ```
 
 Python requirements are bundled in `src/requirements.txt` using Scrypted's official Python plugin build. No HA packages or companion app are imported.
+
+## Troubleshoot an incoming call (0.2.1+)
+
+The provider and doorbell consoles both record call diagnostics without credentials, caller identifiers, SIP headers or SDP. On the next physical doorbell test, save logs covering the initial press through the last recipient and call end. Numbered calls refer only to invitations this plugin receives; they do not identify CellGate's recipient positions.
+
+Expected sequence: `SIP INVITE received`, `ringing`, a camera request, `SIP answer sent`, answer acknowledgement, then first incoming audio/video RTP. Opening the camera answers a ringing call; media is not required before answering. A camera request without an invitation does not send an answer. Automatic prebuffer/viewer requests may also open the camera, so a request alone does not establish a human opened it. Keep continuous prebuffering disabled for this call-only device.
+
+CANCEL indicates CellGate withdrew the invitation; it does not explain whether another client answered, a recipient timed out, or routing advanced. BYE indicates the SIP server ended an established call. Packet receipt is not proof that the viewer rendered video or played audio. A source-filter warning helps diagnose server routing without accepting previously untrusted traffic.
+
+Real CellGate incoming-call media and talk remain unverified. These diagnostics are intended to locate the failure during a real call, not to claim it is resolved.

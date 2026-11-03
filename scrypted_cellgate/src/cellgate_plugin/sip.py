@@ -147,7 +147,9 @@ class IncomingCall:
 class SipReceiver(asyncio.DatagramProtocol):
     """Own a config entry's SIP transport; state callbacks contain no secrets."""
 
-    def __init__(self, account_provider, changed=lambda: None, *, stun_server=None):
+    def __init__(self, account_provider, changed=lambda: None, *, stun_server=None, diagnostic=None):
+        self.diagnostic = diagnostic or (lambda event: None)
+        self.last_untrusted_invite = None
         self.account_provider = account_provider
         self.changed = changed
         self.stun_server = stun_server
@@ -180,6 +182,8 @@ class SipReceiver(asyncio.DatagramProtocol):
         self.stop_lock = asyncio.Lock()
 
     def set_state(self, state, error=None):
+        if state != self.state:
+            self.diagnostic(f"SIP state: {self.state} -> {state}")
         self.state = state
         self.last_error = error
         self.changed()
@@ -192,7 +196,16 @@ class SipReceiver(asyncio.DatagramProtocol):
         pass
 
     def datagram_received(self, packet, addr):
-        if addr[0] not in self.trusted_ips or self.closed:
+        if self.closed:
+            return
+        if addr[0] not in self.trusted_ips:
+            # Observe the existing rejection without trusting the sender or
+            # exposing its address/headers. Rate-limit unsolicited traffic.
+            if packet.startswith(b"INVITE "):
+                now = time.monotonic()
+                if self.last_untrusted_invite is None or now - self.last_untrusted_invite >= 30:
+                    self.last_untrusted_invite = now
+                    self.diagnostic("SIP INVITE ignored: source outside registered server addresses")
             return
         try:
             message = Message.parse(packet)
@@ -490,7 +503,9 @@ class SipReceiver(asyncio.DatagramProtocol):
                     else:
                         self.response(request, peer, 180, "Ringing", tag=call.tag)
                     return
+                self.diagnostic("SIP INVITE received")
                 if call:
+                    self.diagnostic("SIP INVITE rejected: existing call")
                     self.response(
                         request,
                         peer,
@@ -499,6 +514,7 @@ class SipReceiver(asyncio.DatagramProtocol):
                     )
                     return
                 if not self.registered:
+                    self.diagnostic("SIP INVITE rejected: receiver not registered")
                     self.response(request, peer, 480, "Temporarily Unavailable")
                     return
                 self.response(request, peer, 100, "Trying")
@@ -510,6 +526,7 @@ class SipReceiver(asyncio.DatagramProtocol):
                         raise MediaError("SIP call did not include an SDP offer")
                     bridge = MediaBridge(parse_offer(request.body))
                 except MediaError as err:
+                    self.diagnostic("SIP INVITE rejected: unsupported or invalid media offer")
                     self.last_error = str(err)
                     self.changed()
                     self.response(request, peer, 488, "Not Acceptable Here")
@@ -517,6 +534,8 @@ class SipReceiver(asyncio.DatagramProtocol):
                 call = IncomingCall(request, peer, secrets.token_hex(10), bridge)
                 self.call = call
                 self.ring_sequence += 1
+                codecs = ", ".join(c.spec.codec.mimeType for c in bridge.channels)
+                self.diagnostic(f"Call {self.ring_sequence}: ringing; negotiated {codecs}")
                 self.response(request, peer, 180, "Ringing", tag=call.tag)
                 self.set_state("ringing")
                 return
@@ -528,6 +547,7 @@ class SipReceiver(asyncio.DatagramProtocol):
                     and request.get("cseq").split()[0]
                     == call.request.get("cseq").split()[0]
                 ):
+                    self.diagnostic(f"Call {self.ring_sequence}: answer acknowledged by SIP server")
                     call.acknowledged = True
                     self.set_state("active")
                 return
@@ -539,6 +559,7 @@ class SipReceiver(asyncio.DatagramProtocol):
                 == call.request.get("cseq").split()[0]
             ):
                 self.response(request, peer, 200, "OK")
+                self.diagnostic(f"Call {self.ring_sequence}: SIP CANCEL received; answered={call.answered}")
                 if not call.answered:
                     self.response(
                         call.request, call.peer, 487, "Request Terminated", tag=call.tag
@@ -550,6 +571,7 @@ class SipReceiver(asyncio.DatagramProtocol):
                 and matches
                 and dialog_tag(request.get("to")) == call.tag
             ):
+                self.diagnostic(f"Call {self.ring_sequence}: SIP BYE received")
                 self.response(request, peer, 200, "OK", tag=call.tag)
                 await self.finish(call)
                 return
@@ -563,9 +585,11 @@ class SipReceiver(asyncio.DatagramProtocol):
                 raise SipError("No incoming intercom call")
             if call.answered:
                 return call.bridge
+            self.diagnostic(f"Call {self.ring_sequence}: preparing media to answer")
             try:
                 sdp = await call.bridge.prepare(self.local_ip, self.stun_server)
             except BaseException:
+                self.diagnostic(f"Call {self.ring_sequence}: media preparation failed")
                 self.response(
                     call.request, call.peer, 488, "Not Acceptable Here", tag=call.tag
                 )
@@ -588,6 +612,7 @@ class SipReceiver(asyncio.DatagramProtocol):
                     for v in call.request.headers.get("record-route", [])
                 ],
             )
+            self.diagnostic(f"Call {self.ring_sequence}: SIP answer sent; waiting for ACK/media")
             call.timer = self.spawn(self.confirm_answer(call))
             self.set_state("connecting")
             return call.bridge
@@ -605,6 +630,7 @@ class SipReceiver(asyncio.DatagramProtocol):
             self.transport.sendto(call.answer_packet, call.peer)
             delay = min(delay * 2, 4)
         if self.call is call:
+            self.diagnostic(f"Call {self.ring_sequence}: answer acknowledgement timed out")
             await self.hangup()
 
     async def hangup(self):
@@ -635,6 +661,8 @@ class SipReceiver(asyncio.DatagramProtocol):
     async def finish(self, call):
         if self.call is not call:
             return
+        counts = ", ".join(f"{c.spec.codec.mimeType} received={c.packets_received} sent={c.packets_sent}" for c in call.bridge.channels)
+        self.diagnostic(f"Call {self.ring_sequence}: ended; answered={call.answered}; {counts}")
         self.call = None
         if call.timer and call.timer is not asyncio.current_task():
             call.timer.cancel()

@@ -166,7 +166,9 @@ async def simulated_gate(monkeypatch):
     async def account():
         return gate.account
 
-    manager = CallManager(account, stun_server=None)
+    events = []
+    manager = CallManager(account, stun_server=None, diagnostic=events.append)
+    manager.events = events
     await manager.start()
     await eventually(lambda: manager.registered)
     try:
@@ -198,6 +200,10 @@ async def test_registration_retransmission_cancel_and_cleanup(simulated_gate):
     await gate.response(487, "INVITE")
     await eventually(lambda: manager.call is None)
     assert manager.state == "idle"
+    assert manager.events.count("SIP INVITE received") == 1
+    assert any("SIP CANCEL received" in e for e in manager.events)
+    assert any("ended; answered=False" in e for e in manager.events)
+    assert not any("synthetic-user" in e or "synthetic-password" in e or "synthetic-call" in e for e in manager.events)
     await manager.stop()
     assert gate.registrations[-1].get("expires") == "0"
     assert "*" not in gate.registrations[-1].get("contact")
@@ -257,7 +263,7 @@ async def test_real_rtp_video_audio_and_microphone_return(simulated_gate, monkey
         import scrypted_sdk as sdk
         from cellgate_plugin.provider import CellGateCamera
         monkeypatch.setattr(sdk, 'deviceManager', SimpleNamespace(getDeviceState=lambda n: SimpleNamespace()))
-        camera = CellGateCamera(SimpleNamespace(manager=manager))
+        camera = CellGateCamera(SimpleNamespace(manager=manager, diagnostic=manager.events.append))
         async def get_options():
             return {}
         async def create_local(*args):
@@ -347,6 +353,9 @@ async def test_real_rtp_video_audio_and_microphone_return(simulated_gate, monkey
         )
         assert video_frame.width == 160 and video_frame.height == 120
         assert audio_frame.samples > 0
+        await eventually(lambda: any("first incoming video/H264 RTP" in e for e in manager.events))
+        assert any("SIP answer sent" in e for e in manager.events)
+        assert any("answer acknowledged" in e for e in manager.events)
         # Decode the browser's microphone returned as actual SIP-side PCMU RTP.
         decoder = get_decoder(audio_codec)
         heard = False

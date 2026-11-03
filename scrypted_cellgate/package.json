@@ -1,6 +1,6 @@
 {
   "name": "scrypted-cellgate-intercom",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Standalone CellGate mobile login, SIP call camera, and two-way audio for Scrypted",
   "license": "UNLICENSED",

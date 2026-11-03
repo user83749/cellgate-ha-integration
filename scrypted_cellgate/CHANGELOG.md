@@ -1,3 +1,7 @@
+# 0.2.1
+
+Add credential-free call diagnostics to both provider and doorbell logs: registration state transitions, SIP invitations and rejections, ringing, camera requests, answer/ACK, CANCEL/BYE, first incoming RTP, missing-media warning and packet totals at call end. Rate-limit warnings for invitations rejected by the existing SIP source filter. No call acceptance or media behavior change.
+
 # 0.2.0
 
 Replace the backend adapter with a standalone Scrypted Python plugin. Add CellGate email/password settings, mobile API login and SIP provisioning, direct SIP registration and incoming-call handling, and an in-process RTP/WebRTC bridge. Remove all backend URL/API-token settings and HA/Asterisk dependencies. Preserve the package/device identity; migrate only the old email.
