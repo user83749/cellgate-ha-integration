@@ -74,3 +74,7 @@ python -m pytest -q
 - [Asterisk evaluation](docs/asterisk-review.md)
 - [Home Assistant compatibility](docs/home-assistant.md)
 - [Mobile routes](docs/mobile-routes.md)
+
+## Scrypted / Apple Home — experimental adapter
+
+The optional [CellGate Scrypted plugin](scrypted_cellgate/README.md) connects to this existing intercom backend. It creates a persistent call-only doorbell, uses Scrypted's WebRTC extension for video and microphone return, and can be exposed through Scrypted's HomeKit plugin. Gate control remains in HA. It requires no second CellGate login, separate camera RTSP URL, or new backend version beyond 0.4.4. Install it through Scrypted's SDK deployment workflow; it is not published to npm. Real Scrypted/HomeKit and CellGate-call validation is still required.
