@@ -1,18 +1,22 @@
-# CellGate Intercom for Scrypted — experimental
+# CellGate Intercom for Scrypted — experimental standalone plugin
 
-A Scrypted plugin that connects the existing CellGate Intercom Asterisk backend to Scrypted's WebRTC extension. It creates one persistent Doorbell device with call video, incoming audio, microphone-return signaling and a doorbell-press event. It does not replace the Home Assistant integration or sign into CellGate again.
+Version 0.2.0 signs directly into the **CellGate mobile API with your CellGate email and password**. It obtains SIP credentials, registers for incoming calls, and bridges SIP video/audio to Scrypted WebRTC inside the plugin's normal Python runtime. It does not require the Home Assistant integration, CellGate Intercom app, Asterisk, a backend URL, or an API token.
 
-## Requirements
+It creates one persistent Doorbell device. Its camera is online only while a CellGate call exists. Gate control remains in the separate HA integration; this plugin adds no gate or Take Picture controls.
 
-- Working CellGate HA integration with intercom enabled and CellGate Intercom backend 0.4.4 or later. HA remains responsible for mobile authentication, provisioning and SIP registration.
-- Scrypted with the WebRTC plugin installed. Enable WebRTC on this new CellGate device yourself. Enable HomeKit on the same device to pair it with Apple Home.
-- An incoming intercom call. The plugin cannot create a monitoring session or access the camera between calls.
+## Configure and upgrade from 0.1.0
 
-The standard HA 2026.11 microphone/Labs requirement does not apply to Scrypted's talk control. Scrypted's WebRTC extension manages microphone packets on the same call leg. Actual CellGate media, network routing and HomeKit behavior still need a live test.
+1. Update the existing `scrypted-cellgate-intercom` plugin to 0.2.0. The package name and child device native ID (`intercom`) are unchanged, preserving the existing device identity.
+2. Open **Scrypted → Plugins → CellGate Intercom → Settings**. Enter **CellGate Email** and **CellGate Password**. The old backend fields are removed. The old email is migrated; an old API token is never treated as a CellGate password.
+3. Disable experimental intercom in the HA CellGate integration and stop its CellGate Intercom app before using this standalone receiver. Keep the HA gate integration installed. This avoids two SIP receivers competing for calls on the same account.
+4. On the CellGate doorbell device, enable your installed **WebRTC** extension. It supplies Scrypted's VideoCamera and Intercom interfaces. Enable **HomeKit** there if you want to pair through Scrypted.
+5. Check Connection Status for **Registered with CellGate; waiting for a call**. During an actual incoming call, open the camera in Scrypted first, then test talk. Test Apple Home afterward.
 
-## Install without npm publication
+Passwords are stored in Scrypted's plugin storage and entered in a masked field. Authentication rejection stops automatic retries until credentials change or the plugin reloads. This plugin does not authenticate to HA or use its HTTP camera endpoints. Neither a DuckDNS URL nor an internal HA address belongs in these settings.
 
-This package is not published to npm. Use Scrypted's official SDK deployment workflow from a development computer with Node.js 20 or newer (Node 24 is tested):
+## Install without publishing to npm
+
+Use Scrypted's official SDK deployment workflow from a computer with Node.js 20+ (Node 24 tested):
 
 ```sh
 git clone https://github.com/user83749/cellgate-ha-integration.git
@@ -23,46 +27,34 @@ npx scrypted login SCRYPTED_IP:10443
 npm run scrypted-deploy -- SCRYPTED_IP:10443
 ```
 
-Replace `SCRYPTED_IP:10443` with the actual direct Scrypted management address and port. The SDK login uses your Scrypted credentials. The build produces `out/plugin.zip`; deployment installs that bundle under `scrypted-cellgate-intercom`. Do not enter the package name in the npm plugin search: it has not been published there. Do not expose a new management port to the public internet for deployment.
+Use Scrypted's direct management listener, not HA's port 8123 or its sidebar ingress URL. When deploying from a terminal inside the Scrypted container, use `127.0.0.1:10443`. Use Scrypted's own login. Do not expose a management port publicly. The package is not published to npm; entering its name in the plugin search will not install it.
 
-A Home Assistant sidebar URL such as `http://192.168.2.196:8123/09e60fb6_scrypted` is an HA ingress page, not a direct Scrypted SDK deployment address. The SDK cannot use the HA sidebar URL or HA login credentials. If Scrypted's direct management listener is unavailable, installation requires an authenticated ingress deployment method or enabling its management port locally; do not substitute HA's port 8123.
+The release's prebuilt archive contains `package.json` and `out/plugin.zip`. Extract it and use the same SDK deployment command from that directory; no local Python media dependencies are needed for deployment. Scrypted installs the Python requirements on its server.
 
-Scrypted's development instructions: https://developer.scrypted.app/plugins.html
+Official development guide: https://developer.scrypted.app/plugins.html
 
-## Configure
+## Calls and media
 
-Open **CellGate Intercom** under Scrypted's installed plugins and set:
+- Opening the camera answers the incoming SIP call. Closing the viewer detaches only WebRTC; the same intercom call can be reopened. SIP CANCEL/BYE ends the call. CellGate decides its duration. A missing SIP answer acknowledgment still triggers normal protocol cleanup.
+- A doorbell event pulses once per incoming call; repeated SIP INVITEs do not create extra presses.
+- There is no camera monitoring or preview image between calls. Disable continuous recording and background prebuffering for this device.
+- One viewer media connection is supported at a time; Scrypted's WebRTC extension can act as the gateway for other consumers.
+- Talk is muted initially. Scrypted's talk control enables microphone return. Turning talk off drops queued microphone frames and stops forwarding speech. Closing or losing the viewer also mutes talk without hanging up the provider call.
+- SDP determines codecs. Supported incoming video is H.264/VP8, and audio is PCMU/PCMA/G.722. H.263-only video is unsupported. The bridge decodes and re-encodes media using aiortc/PyAV; it is not a zero-copy passthrough and has no measured latency/quality advantage over Asterisk.
+- The current SIP profile is IPv4 UDP with digest authentication, RTP or SDES-SRTP, and STUN mapping on the actual RTP/RTCP sockets. SIP TLS/TCP, TURN, and arbitrary NAT/firewall configurations are not supported. No extra HTTP server, backend token, or camera URL is exposed by this plugin.
+- Standard HA microphone/Labs requirements do not apply to Scrypted's talk controls.
 
-| Setting | Value |
-| --- | --- |
-| CellGate Intercom Backend URL | The backend's LAN URL, e.g. `http://192.168.2.196:28190`. This must be reachable from Scrypted. It is neither the HA dashboard nor the DuckDNS frontend URL. |
-| Backend API Token | The same independent `api_token` in the CellGate Intercom app. This is not an HA token. |
-| CellGate Account Email | The same CellGate login email configured in HA. No CellGate password is needed. |
+## Validation and limitations
 
-The plugin identifies the backend before sending the token. Incorrect backend authentication stops retries until settings change. The account email is used locally to derive the existing backend account ID; it is not used for another CellGate login.
-
-Open the new **CellGate Intercom** doorbell device and enable the **WebRTC** extension. This supplies the VideoCamera and Intercom interfaces; the adapter implements native RTCSignalingChannel. Then enable **HomeKit** and pair the doorbell with Apple Home using Scrypted's normal flow.
-
-Disable background prebuffering/continuous recording for this call-only device. Do not open its HA camera and Scrypted camera simultaneously: the backend currently permits one viewing media leg. Test the camera in Scrypted during a real incoming call before trying Apple Home. A static preview between calls is not provided; no snapshot control is added.
-
-## Behavior
-
-- Rings once for each incoming call, including if Scrypted attaches while that call is ringing. Event-stream reconnects do not repeat the doorbell press during the same plugin process.
-- Always uses the same device/native ID across calls and restarts.
-- Video/audio negotiation requests receive-only video and two-way audio. Scrypted's WebRTC extension sends microphone RTP only while its intercom forwarder is running. The backend requires no vendor StartTalk request.
-- Closing a viewer deletes only its backend viewing session. CellGate's provider call continues and can be reopened. Provider call end stops the backend's media; there is no locally invented call deadline.
-- Settings changes disconnect only this plugin's viewer/event connection. There is no account PUT/DELETE, gate actuation, call initiation, or second SIP registration in this plugin.
-- The plugin needs no separate camera RTSP URL. The WebRTC extension handles the conversion for consumers that require a conventional video stream.
-
-## Development checks
+The Python 3.12 test suite runs the real Scrypted Python SDK against a synthetic device manager and a simulated SIP gate. It verifies direct mobile request contracts, bounded auth retries, credential-field migration, stable device identity, ring deduplication, actual H.264/audio RTP through WebRTC, microphone RTP return, mute, viewer close/reopen, STUN socket reuse, and provider call cleanup. It does not prove a real CellGate incoming call or Apple Home two-way audio works on your network.
 
 ```sh
-npm run typecheck
-npm test
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r src/requirements.txt pytest pytest-asyncio
+npm ci --ignore-scripts
+.venv/bin/python -m pytest tests -q
 npm run build
-npm run test:bundle
+.venv/bin/python tests/check_bundle.py
 ```
 
-The SDK build uses its supported Rollup mode, and a separate bundle-startup test checks the compiled plugin against SDK runtime globals.
-
-Tests cover service identification before credentials, bad-auth retry blocking, early ICE, call-end/reservation races, failed-offer cleanup, viewer close/reopen, and ring deduplication. The repository's Asterisk workflow can run the actual adapter against the packaged backend with synthetic SIP/RTP/WebRTC traffic. That lab uses an SDK-shaped signaling peer with aiortc and does not prove installed Scrypted WebRTC/HomeKit integration or a real CellGate call.
+Python requirements are bundled in `src/requirements.txt` using Scrypted's official Python plugin build. No HA packages or companion app are imported.

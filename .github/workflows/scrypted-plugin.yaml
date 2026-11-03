@@ -1,4 +1,4 @@
-name: Validate Scrypted plugin
+name: Validate standalone Scrypted plugin
 on:
   push:
     paths: ['scrypted_cellgate/**', '.github/workflows/scrypted-plugin.yaml']
@@ -20,15 +20,18 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: scrypted_cellgate/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - run: npm ci --ignore-scripts
-      - run: npm run typecheck
-      - run: npm test
+      - run: python -m pip install -r src/requirements.txt pytest pytest-asyncio
+      - run: python -m pytest tests -q
       - run: npm run build
-      - run: npm run test:bundle
+      - run: python tests/check_bundle.py
       - run: npm pack --ignore-scripts
       - uses: actions/upload-artifact@v4
         with:
-          name: cellgate-scrypted-plugin
+          name: cellgate-scrypted-standalone-plugin
           path: |
             scrypted_cellgate/out/plugin.zip
             scrypted_cellgate/*.tgz

@@ -6,7 +6,6 @@ on:
       - 'cellgate_intercom/**'
       - 'custom_components/cellgate/**'
       - 'tools/asterisk_lab/**'
-      - 'scrypted_cellgate/**'
       - '.github/workflows/asterisk-backend.yaml'
   workflow_dispatch:
 permissions:
@@ -15,31 +14,20 @@ jobs:
   intercom:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        adapter: [ha, scrypted]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
-      - uses: actions/setup-node@v4
-        if: matrix.adapter == 'scrypted'
-        with:
-          node-version: '24'
-      - run: npm ci --ignore-scripts
-        if: matrix.adapter == 'scrypted'
-        working-directory: scrypted_cellgate
       - run: pip install -r requirements-test.txt
       - run: docker build -t cellgate-intercom:lab cellgate_intercom
       - run: python -u tools/asterisk_lab/backend.py
         env:
-          CELLGATE_LAB_ADAPTER: ${{ matrix.adapter }}
+          CELLGATE_LAB_ADAPTER: ha
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: asterisk-backend-results-${{ matrix.adapter }}
+          name: asterisk-backend-results-ha
           path: |
             asterisk-backend-results/report.json
             asterisk-backend-results/*.txt
